@@ -195,6 +195,19 @@ class PhysicsWorld {
     private val sleepTimes = HashMap<Long, Float>()
     private val sleepingIds = HashSet<Long>()
 
+    /**
+     * Velocity of every body as it was written back at the end of the previous step. A sleeping body
+     * is woken when the script (or gameplay code) changes its velocity between steps: comparing
+     * against the freshly gathered value would never notice the change, because gathering happens
+     * after the script wrote it.
+     */
+    private val lastVx = HashMap<Long, Float>()
+    private val lastVy = HashMap<Long, Float>()
+    private val lastW = HashMap<Long, Float>()
+    /** World position of every body at the end of the previous step (detects teleports). */
+    private val lastGoX = HashMap<Long, Float>()
+    private val lastGoY = HashMap<Long, Float>()
+
     private var prevContacts = HashMap<Long, LongArray>()
     private var prevTriggers = HashMap<Long, LongArray>()
     private var currentContacts = HashMap<Long, LongArray>()
@@ -206,6 +219,7 @@ class PhysicsWorld {
         prevContacts = HashMap(); prevTriggers = HashMap()
         currentContacts = HashMap(); currentTriggers = HashMap()
         sleepTimes.clear(); sleepingIds.clear()
+        lastVx.clear(); lastVy.clear(); lastW.clear(); lastGoX.clear(); lastGoY.clear()
         bodyPool.clear(); contactPool.clear(); jointPool.clear()
         poolUsed = 0; contactPoolUsed = 0; jointPoolUsed = 0
         bodies.clear(); contacts.clear(); joints.clear()
@@ -322,6 +336,18 @@ class PhysicsWorld {
                 b.vy = rb?.vy ?: 0f
                 b.w = if (rb != null && !rb.freezeRotation) rb.angularVelocity else 0f
                 b.awake = b.dynamic && !sleepingIds.contains(go.id)
+                // A body that was moved from code (teleport, respawn, platform snapping) must wake up,
+                // otherwise it would ignore contacts until something else disturbs it.
+                if (b.dynamic && !b.awake) {
+                    val px = lastGoX[go.id]
+                    val py = lastGoY[go.id]
+                    if (px != null && py != null && (abs(px - originX) > 0.01f || abs(py - originY) > 0.01f)) {
+                        b.awake = true
+                        b.sleepTime = 0f
+                        sleepingIds.remove(go.id)
+                        sleepTimes.remove(go.id)
+                    }
+                }
                 b.sleepTime = sleepTimes[go.id] ?: 0f
                 b.isCircle = false; b.n = 0; b.radius = 0f
                 b.primary = true
@@ -455,9 +481,19 @@ class PhysicsWorld {
         for (b in bodies) {
             if (!b.dynamic) continue
             val rb = b.rb ?: continue
-            val changed = abs(rb.vx - b.vx) > 1e-3f || abs(rb.vy - b.vy) > 1e-3f ||
-                (!rb.freezeRotation && abs(rb.angularVelocity - b.w) > 1e-3f)
+            val id = b.go?.id ?: -1L
+            val baseVx = lastVx[id] ?: b.vx
+            val baseVy = lastVy[id] ?: b.vy
+            val baseW = lastW[id] ?: b.w
+            val changed = abs(rb.vx - baseVx) > 1e-3f || abs(rb.vy - baseVy) > 1e-3f ||
+                (!rb.freezeRotation && abs(rb.angularVelocity - baseW) > 1e-3f)
             if (!b.awake && (changed || rb.torque != 0f)) wake(b)
+            // A script may rewrite the velocity of an awake body too; keep the body in sync.
+            if (b.awake && changed) {
+                b.vx = rb.vx
+                b.vy = rb.vy
+                if (!rb.freezeRotation) b.w = rb.angularVelocity
+            }
         }
     }
 
@@ -979,6 +1015,10 @@ class PhysicsWorld {
                 rb.vx = b.vx
                 rb.vy = b.vy
                 if (!rb.freezeRotation) rb.angularVelocity = b.w
+                val id = go.id
+                lastVx[id] = b.vx
+                lastVy[id] = b.vy
+                lastW[id] = b.w
             }
             if (!b.dynamic && !b.kinematic) continue
             if (b.dynamic && !b.awake) continue
@@ -988,7 +1028,11 @@ class PhysicsWorld {
             // Keep the authored pivot: the object origin follows the body centre, rotated by the spin.
             val ox = b.originX - b.startCx
             val oy = b.originY - b.startCy
-            go.setWorldPosition(b.cx + ox * c - oy * s, b.cy + ox * s + oy * c)
+            val newX = b.cx + ox * c - oy * s
+            val newY = b.cy + ox * s + oy * c
+            go.setWorldPosition(newX, newY)
+            lastGoX[go.id] = newX
+            lastGoY[go.id] = newY
             if (delta != 0f) go.rotation += Math.toDegrees(delta.toDouble()).toFloat()
         }
     }
