@@ -1,0 +1,43 @@
+name: Replace main with Assets2 arena/50d2e64e-assets2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  replace-project:
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip ci]')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout target main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Checkout exact Assets2 source branch
+        uses: actions/checkout@v4
+        with:
+          repository: surafel5509-del/Assets2
+          ref: arena/50d2e64e-assets2
+          path: _assets2_source
+          fetch-depth: 1
+      - name: Replace target files with source project
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --delete --exclude='.git' _assets2_source/ ./
+          rm -rf _assets2_source
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "Source tree already matches main; nothing to commit."
+            exit 0
+          fi
+          git commit -m "Replace main with Assets2 arena/50d2e64e-assets2 [skip ci]"
+          git push --force origin HEAD:main
