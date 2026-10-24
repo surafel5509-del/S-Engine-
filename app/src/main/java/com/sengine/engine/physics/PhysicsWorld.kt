@@ -757,9 +757,15 @@ class PhysicsWorld {
             for (k in i + 1 until n) {
                 val b = bodies[k]
                 if (a.go === b.go) continue
-                if (!a.dynamic && !b.dynamic && !a.kinematic && !b.kinematic) continue
+                // Static/static pairs are only interesting when both are triggers: script driven sensors
+                // (a child object with a trigger collider and no rigidbody) have to detect static pickups.
+                val anyMoving = a.dynamic || b.dynamic || a.kinematic || b.kinematic
+                val staticTriggers = a.trigger && b.trigger && !anyMoving
+                if (!anyMoving && !staticTriggers) continue
                 if (a.maxX < b.minX || b.maxX < a.minX || a.maxY < b.minY || b.maxY < a.minY) continue
-                if (!a.awake && !b.awake) continue
+                // Sleeping bodies cannot start contacts, but trigger pairs are always tested because
+                // triggers never carry momentum to wake their neighbour with.
+                if (!a.awake && !b.awake && !(a.trigger || b.trigger)) continue
                 if (a.invMass == 0f && b.invMass == 0f && !a.trigger && !b.trigger) continue
                 // Bodies wired together by a joint never collide with each other.
                 if (jointPairs.contains(pairKey(a.go?.id ?: 0L, b.go?.id ?: 0L))) continue

@@ -32,6 +32,15 @@
           "Offset X": 0,
           "Offset Y": 1,
           "Follow Smoothing": 5,
+          "Vertical Smoothing": 0,
+          "Dead Zone X": 0,
+          "Dead Zone Y": 0,
+          "Look Ahead": 0,
+          "Look Ahead Max": 2,
+          "Vertical Bias": 0,
+          "Pixel Snap": false,
+          "Shake Decay": 2,
+          "Shake Strength": 0.35,
           "Post FX": "Custom Shader",
           "FX Intensity": 0.8,
           "FX Shader": "glow.glsl"
@@ -89,7 +98,9 @@
           "Radius": 0.5,
           "Offset X": 0,
           "Offset Y": 0,
-          "Is Trigger": false
+          "Is Trigger": false,
+          "Points": "",
+          "Thickness": 1
         },
         {
           "type": "Script",
@@ -186,7 +197,9 @@
           "Radius": 0.5,
           "Offset X": 0,
           "Offset Y": 0,
-          "Is Trigger": false
+          "Is Trigger": false,
+          "Points": "",
+          "Thickness": 1
         }
       ]
     },
