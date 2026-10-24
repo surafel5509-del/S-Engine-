@@ -39,7 +39,6 @@ jobs:
         run: chmod +x ./gradlew
 
       - name: Run unit tests
-        continue-on-error: true
         run: |
           set -o pipefail
           ./gradlew --no-daemon --stacktrace testDebugUnitTest 2>&1 | tee "$RUNNER_TEMP/gradle-test.log"
