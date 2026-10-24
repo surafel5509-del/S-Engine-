@@ -67,4 +67,13 @@ object GL {
     fun g(c: Int) = ((c shr 8) and 0xFF) / 255f
     fun b(c: Int) = (c and 0xFF) / 255f
     fun a(c: Int) = ((c ushr 24) and 0xFF) / 255f
+
+    /** Packs normalised 0..1 channel values into an ARGB int. */
+    fun color(r: Float, g: Float, b: Float, a: Float = 1f): Int {
+        val ri = (r.coerceIn(0f, 1f) * 255f + 0.5f).toInt()
+        val gi = (g.coerceIn(0f, 1f) * 255f + 0.5f).toInt()
+        val bi = (b.coerceIn(0f, 1f) * 255f + 0.5f).toInt()
+        val ai = (a.coerceIn(0f, 1f) * 255f + 0.5f).toInt()
+        return (ai shl 24) or (ri shl 16) or (gi shl 8) or bi
+    }
 }

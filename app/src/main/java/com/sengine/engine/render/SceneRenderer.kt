@@ -10,6 +10,7 @@ import com.sengine.engine.core.Collider2D
 import com.sengine.engine.core.Collider3D
 import com.sengine.engine.core.GameObject
 import com.sengine.engine.core.Light
+import com.sengine.engine.core.Light2D
 import com.sengine.engine.core.MeshRenderer
 import com.sengine.engine.core.ParticleEmitter
 import com.sengine.engine.core.SpriteRenderer
@@ -42,6 +43,7 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
     private val r3 = Renderer3D()
     private val shaders = ShaderLibrary(engine.project) { engine.log(2, it) }
     private val post = PostProcessor()
+    private val lighting = Lighting2D()
     private val textures = TextureCache(engine.project).also { cache -> cache.onLog = { lvl, msg -> engine.log(lvl, msg) } }
     private val gameView3D = View3D()
     private val shakeView = View2D()
@@ -104,6 +106,7 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
             }
             val (activeBackend, activeSources) = active ?: throw (lastError ?: GraphicsInitException("No shader set could be built"))
             post.init()
+            lighting.init(activeSources)
             textures.clear()
             val shaderNote = if (activeBackend == selected) "" else " | fell back to ${activeBackend.label} shaders"
             GraphicsStatus.succeeded(activeBackend, description + " | shader dialect: ${activeSources.dialect.name}" + shaderNote)
@@ -170,6 +173,7 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
             if (postProg != null) post.begin(width, height)
 
             if (use3D) render3D(editing, cam3) else render2D(editing)
+            if (!use3D) drawLighting2D(editing)
             drawScreenUI(editing, use3D)
 
             if (post.active && postProg != null) r.drawCalls += post.end(postProg, time, intensity)
@@ -186,10 +190,10 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
         if (editing) view = editor!!.view
         else {
             shakeView.copyFrom(engine.gameView)
-            val shake = engine.mainCamera()?.get<Camera2D>()?.shake ?: 0f
-            if (shake > 0f) {
-                shakeView.cx += (rnd.nextFloat() * 2f - 1f) * shake * 0.25f
-                shakeView.cy += (rnd.nextFloat() * 2f - 1f) * shake * 0.25f
+            val cam2 = engine.mainCamera()?.get<Camera2D>()
+            if (cam2 != null && (cam2.shakeOffX != 0f || cam2.shakeOffY != 0f)) {
+                shakeView.cx += cam2.shakeOffX
+                shakeView.cy += cam2.shakeOffY
             }
             view = shakeView
         }
@@ -205,6 +209,35 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
             drawObject2D(go, ppu, null)
         }
         if (editing) drawEditorOverlay(view, editor!!)
+        // Light map composite happens in onDrawFrame so screen-space UI stays unlit.
+        lightView = view
+    }
+
+    private var lightView: View2D? = null
+    private var lightsThisFrame = false
+
+    private fun drawLighting2D(editing: Boolean) {
+        lightsThisFrame = false
+        if (editing) return
+        val scene = engine.scene
+        var hasLight = false
+        for (go in scene.objects) {
+            if (!go.isActiveInHierarchy()) continue
+            if (go.get<Light2D>() != null) { hasLight = true; break }
+        }
+        if (!hasLight) return
+        val view = lightView ?: return
+        val ambient = lighting.ambientColor(scene, LIGHT_AMBIENT)
+        if (!lighting.begin(width, height, ambient)) return
+        for (go in scene.objects) {
+            if (!go.isActiveInHierarchy()) continue
+            val light = go.get<Light2D>() ?: continue
+            if (light.kind == 0) continue
+            val cookie = if (light.cookie.isNotBlank()) textures.image(light.cookie) else null
+            lighting.drawLight(go, view, cookie)
+        }
+        r.drawCalls += lighting.end(r, width, height)
+        lightsThisFrame = true
     }
 
     private fun sortedObjects(): List<GameObject> = Draw2DRules.drawOrder(engine.scene.objects)
@@ -581,5 +614,7 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
 
     companion object {
         val POST_CUSTOM = com.sengine.engine.core.ComponentRegistry.POST_FX.size - 1
+        /** Ambient light map value used when a scene has 2D lights but no ambient light object. */
+        const val LIGHT_AMBIENT = 0xFF2A2E38.toInt()
     }
 }

@@ -34,6 +34,8 @@ import com.sengine.engine.core.Animator
 import com.sengine.engine.core.Camera3D
 import com.sengine.engine.core.Collider3D
 import com.sengine.engine.core.Light
+import com.sengine.engine.core.Light2D
+import com.sengine.engine.core.Joint2D
 import com.sengine.engine.core.MeshRenderer
 import com.sengine.engine.core.Rigidbody3D
 import com.sengine.engine.core.AudioSource
@@ -51,9 +53,13 @@ import com.sengine.engine.platform.android.GraphicsStatus
 import com.sengine.engine.render.EditorState
 import com.sengine.engine.render.SceneRenderer
 import com.sengine.engine.render.Tool
+import com.sengine.project.ObjectPresets2D
 import com.sengine.project.Project
 import com.sengine.project.ProjectManager
 import com.sengine.project.Templates
+import com.sengine.project.TextureSettings
+import com.sengine.project.TextureSettingsStore
+import com.sengine.project.ZipAssetImporter
 
 class EditorActivity : AppCompatActivity(), EditorHost {
 
@@ -110,6 +116,10 @@ class EditorActivity : AppCompatActivity(), EditorHost {
 
     private val importLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) importAsset(uri)
+    }
+
+    private val zipImportLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) importArchive(uri)
     }
 
     private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
@@ -326,6 +336,8 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         assetButtons.addView(button("Import Model") { importKind = AssetKind.MODEL; importLauncher.launch(arrayOf("*/*")) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
         assetButtons.addView(button("Import Image") { importKind = AssetKind.TEXTURE; importLauncher.launch(arrayOf("image/*")) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
         assetButtons.addView(button("Import Sound") { importKind = AssetKind.SOUND; importLauncher.launch(arrayOf("audio/*")) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
+        assetButtons.addView(button("Import ZIP") { zipImportLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "*/*")) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
+        assetButtons.addView(button("🎨 Sprite Studio") { openSpriteStudio(null) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
         tabs.addView(assetButtons)
         tabs.addView(button("Clear", C.HEADER) { consoleText.text = "" }.apply { textSize = 12f })
         tabs.addView(button("▾", C.HEADER) { toggle(bottomContent) }.apply { textSize = 12f })
@@ -516,6 +528,13 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         val m2 = pm.menu.addSubMenu("2D Object")
         listOf("Square", "Circle", "Triangle", "Text", "UI Text", "Camera", "Particle System",
             "Physics Box", "Physics Ball", "Static Platform", "Trigger Zone", "Animated Sprite").forEach { m2.add(it) }
+        val ml = pm.menu.addSubMenu("2D Lighting")
+        listOf("Point Light 2D", "Spot Light 2D", "Ambient Light 2D", "Sun Light 2D").forEach { ml.add(it) }
+        val mp = pm.menu.addSubMenu("2D Shapes & Presets")
+        for ((category, presets) in ObjectPresets2D.byCategory()) {
+            val sub = if (ObjectPresets2D.byCategory().size == 1) mp else mp.addSubMenu(category)
+            for (preset in presets) sub.add("Preset:${preset.id}")
+        }
         val m3 = pm.menu.addSubMenu("3D Object")
         listOf("Cube", "Sphere", "Plane", "Cylinder", "Cone", "Torus", "Capsule", "Pyramid",
             "Physics Cube 3D", "Physics Sphere 3D", "Ground 3D", "3D Camera", "Directional Light", "Point Light").forEach { m3.add(it) }
@@ -524,6 +543,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
     }
 
     private fun createObject(kind: String) {
+        if (kind.startsWith("Preset:")) { addPreset(kind.removePrefix("Preset:")); return }
         history.record(state.selectedId)
         val go = synchronized(engine.lock) {
             val scene = engine.scene
@@ -549,7 +569,12 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                 "Circle" -> g.add(SpriteRenderer().also { it.shape = 1 })
                 "Triangle" -> g.add(SpriteRenderer().also { it.shape = 2 })
                 "Text" -> g.add(TextRenderer())
-                "Camera" -> g.add(Camera2D())
+                "Camera" -> g.add(Camera2D().also { c ->
+                    // Professional defaults: light smoothing, a little look ahead and a subtle
+                    // vertical bias so the player is not glued to the screen centre.
+                    c.smoothing = 6f; c.smoothingY = 3.5f; c.lookAhead = 0.12f
+                    c.deadzoneX = 0.35f; c.deadzoneY = 0.25f; c.shakeAmplitude = 0.3f
+                })
                 "Particle System" -> g.add(ParticleEmitter())
                 "Physics Box" -> { g.add(SpriteRenderer().also { it.color = 0xFFFFB74D.toInt() }); g.add(Collider2D()); g.add(Rigidbody2D()) }
                 "Physics Ball" -> {
@@ -558,6 +583,10 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                 }
                 "Static Platform" -> { g.scaleX = 4f; g.scaleY = 0.5f; g.add(SpriteRenderer().also { it.color = 0xFF8D6E63.toInt() }); g.add(Collider2D()) }
                 "Trigger Zone" -> { g.scaleX = 2f; g.scaleY = 2f; g.add(Collider2D().also { it.isTrigger = true }) }
+                "Point Light 2D" -> g.add(Light2D().also { it.kind = 1; it.radius = 6f; it.color = 0xFFFFD9A0.toInt() })
+                "Spot Light 2D" -> g.add(Light2D().also { it.kind = 2; it.radius = 8f; it.spotAngle = 55f; it.direction = -90f })
+                "Ambient Light 2D" -> g.add(Light2D().also { it.kind = 0; it.color = 0xFF39414F.toInt() })
+                "Sun Light 2D" -> g.add(Light2D().also { it.kind = 3; it.color = 0xFFA8C0E0.toInt(); it.intensity = 0.55f })
             }
             g
         }
@@ -622,7 +651,8 @@ class EditorActivity : AppCompatActivity(), EditorHost {
             else -> "Classic joystick"
         }
         val entries = listOf(
-            "Save Scene", "AI Game Builder", "Scenes…", "Build & Run (fullscreen)", "Build APK…", "Asset Store", "Sprite & Animation Editor",
+            "Save Scene", "AI Game Builder", "Scenes…", "Build & Run (fullscreen)", "Build APK…", "Asset Store",
+            "🎨 Sprite Studio", "Sprite & Animation Editor", "Import Asset Pack (.zip)…",
             "Control Scheme: $controlLabel", "Export Project (.zip)",
             (if (state.showProfiler) "Hide" else "Show") + " Profiler",
             (if (state.showGrid) "Hide" else "Show") + " Grid",
@@ -640,7 +670,9 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                 t.startsWith("Build & Run") -> { saveScene(silent = true); startActivity(Intent(this, PlayerActivity::class.java).putExtra("project", project.name)) }
                 t == "Build APK…" -> { saveScene(silent = true); startActivity(Intent(this, BuildActivity::class.java).putExtra("project", project.name)) }
                 t == "Asset Store" -> startActivity(Intent(this, AssetStoreActivity::class.java).putExtra("project", project.name))
+                t == "🎨 Sprite Studio" -> openSpriteStudio(null)
                 t == "Sprite & Animation Editor" -> openAnimationEditor(null)
+                t.startsWith("Import Asset Pack") -> zipImportLauncher.launch(arrayOf("application/zip", "application/x-zip-compressed", "*/*"))
                 t.startsWith("Control Scheme:") -> controlSchemeDialog()
                 t.endsWith("Profiler") -> state.showProfiler = !state.showProfiler
                 t.startsWith("Export") -> { saveScene(silent = true); exportLauncher.launch("${project.name}.zip") }
@@ -758,6 +790,129 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         appendConsole(0, "Opened scene $name")
     }
 
+    // ================================================================== sprite studio & presets
+
+    /** Opens Sprite Studio for a document (a new one when [sprite] is null). */
+    fun openSpriteStudio(sprite: String?) {
+        val i = Intent(this, SpriteStudioActivity::class.java).putExtra("project", project.name)
+        if (sprite != null) i.putExtra("sprite", sprite)
+        startActivity(i)
+    }
+
+    /** Adds a pre-made 2D object from the preset library at the viewport centre. */
+    private fun addPreset(id: String) {
+        if (engine.mode != Engine.Mode.EDIT) { toast("Stop play mode to add objects"); return }
+        val preset = ObjectPresets2D.find(id) ?: return
+        history.record(state.selectedId)
+        val go = synchronized(engine.lock) {
+            preset.build(engine.scene, snap(state.view.cx), snap(state.view.cy))
+        }
+        refreshHierarchy()
+        select(go.id)
+        appendConsole(0, "Added ${preset.name}" + if (preset.description.isNotBlank()) " — ${preset.description}" else "")
+    }
+
+    // ================================================================== zip asset import
+
+    private fun importArchive(uri: Uri) {
+        try {
+            val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+            if (bytes == null) { toast("Could not read that file"); return }
+            val plan = ZipAssetImporter.read(bytes, existing = project.listAssets())
+            if (plan.isEmpty) {
+                MaterialAlertDialogBuilder(this).setTitle("Nothing to import")
+                    .setMessage("No usable assets were found in this archive.\n\n" +
+                        plan.skipped.take(8).joinToString("\n"))
+                    .setPositiveButton("OK", null).show()
+                return
+            }
+            val list = plan.entries.take(12).joinToString("\n") { "${it.name}  (${it.size / 1024} KB)" } +
+                if (plan.entries.size > 12) "\n… and ${plan.entries.size - 12} more" else ""
+            val skipped = if (plan.skipped.isEmpty()) "" else
+                "\n\nSkipped ${plan.skipped.size}:\n" + plan.skipped.take(6).joinToString("\n")
+            MaterialAlertDialogBuilder(this).setTitle("Import asset pack")
+                .setMessage("${plan.summary()}\n\n$list$skipped")
+                .setPositiveButton("Import") { _, _ ->
+                    var ok = 0
+                    var failed = 0
+                    val textures = project.textureSettings()
+                    for (e in plan.entries) {
+                        try {
+                            val name = project.uniqueAssetName(e.name)
+                            project.writeAssetBytes(name, e.bytes)
+                            if (AssetKind.of(name) == AssetKind.TEXTURE) {
+                                textures.set(name, TextureSettings.forFile(name))
+                            }
+                            ok++
+                        } catch (_: Exception) {
+                            failed++
+                        }
+                    }
+                    project.saveTextureSettings()
+                    refreshAssets()
+                    showTab(1)
+                    toast("Imported $ok asset${if (ok == 1) "" else "s"}" + if (failed > 0) ", $failed failed" else "")
+                    appendConsole(0, "Asset pack imported: $ok files")
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        } catch (e: Exception) {
+            toast("Import failed: ${e.message}")
+        }
+    }
+
+    // ================================================================== texture settings
+
+    private fun textureSettingsDialog(name: String) {
+        val store = project.textureSettings()
+        val settings = store.get(name).copy()
+        val root = vbox().apply { setPadding(dp(20), dp(6), dp(20), dp(0)) }
+        val filterValues = listOf(0, 1, 2)
+        val filterLabels = arrayOf("Nearest (pixel art)", "Linear", "Trilinear (mipmaps)")
+        val wrapValues = listOf(0, 1, 2)
+        val wrapLabels = arrayOf("Clamp", "Repeat", "Mirror")
+        root.addView(label("Filtering", 12f, C.DIM))
+        val filterView = label(filterLabels[settings.filter.coerceIn(0, 2)], 13f, C.TEXT, true)
+        root.addView(filterView)
+        filterView.setOnClickListener {
+            MaterialAlertDialogBuilder(this).setTitle("Filtering").setItems(filterLabels) { _, which ->
+                settings.filter = filterValues[which]
+                settings.mipmaps = which == 2
+                filterView.text = filterLabels[which]
+            }.setNegativeButton("Cancel", null).show()
+        }
+        root.addView(label("Wrapping", 12f, C.DIM))
+        val wrapView = label(wrapLabels[settings.wrap.coerceIn(0, 2)], 13f, C.TEXT, true)
+        root.addView(wrapView)
+        val maxField = field(settings.maxSize.toString(), numeric = true)
+        root.addView(label("Max size in pixels (0 = keep source)", 12f, C.DIM))
+        root.addView(maxField, lp(MATCH, WRAP))
+        val potBox = android.widget.CheckBox(this).apply { text = "Round to power of two"; isChecked = settings.powerOfTwo; setTextColor(C.TEXT) }
+        root.addView(potBox)
+        val pixelBox = android.widget.CheckBox(this).apply { text = "Pixel art preset (nearest, no mipmaps)"; isChecked = settings.pixelArt; setTextColor(C.TEXT) }
+        root.addView(pixelBox)
+
+        val dlg = MaterialAlertDialogBuilder(this).setTitle("Texture: $name").setView(root)
+            .setPositiveButton("Save") { _, _ ->
+                settings.maxSize = maxField.text.toString().toIntOrNull()?.coerceIn(0, 8192) ?: settings.maxSize
+                settings.powerOfTwo = potBox.isChecked
+                if (pixelBox.isChecked) settings.usePixelArt() else settings.pixelArt = false
+                store.set(name, settings)
+                project.saveTextureSettings()
+                toast("Texture settings saved. Reopen the scene to reload the texture.")
+                appendConsole(0, "Texture settings for $name: filter=${settings.filter} max=${settings.maxSize}")
+            }
+            .setNegativeButton("Cancel", null)
+            .create()
+        dlg.show()
+        wrapView.setOnClickListener {
+            MaterialAlertDialogBuilder(this).setTitle("Wrapping").setItems(wrapLabels) { _, which ->
+                settings.wrap = wrapValues[which]
+                wrapView.text = wrapLabels[which]
+            }.setNegativeButton("Cancel", null).show()
+        }
+    }
+
     // ================================================================== assets
     fun refreshAssets() {
         if (!::assetsRow.isInitialized) return
@@ -802,7 +957,12 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         val sel = synchronized(engine.lock) { engine.scene.findById(state.selectedId) }
         when (kind) {
             AssetKind.SCRIPT -> { pm.menu.add("Edit"); if (sel != null) pm.menu.add("Attach to ${sel.name}") }
-            AssetKind.TEXTURE -> { pm.menu.add("Create Sprite"); if (sel != null) pm.menu.add("Assign to ${sel.name}") }
+            AssetKind.TEXTURE -> {
+                pm.menu.add("Create Sprite")
+                pm.menu.add("Edit in Sprite Studio")
+                pm.menu.add("Texture settings…")
+                if (sel != null) pm.menu.add("Assign to ${sel.name}")
+            }
             AssetKind.SOUND -> { pm.menu.add("Preview"); if (sel != null) pm.menu.add("Add AudioSource to ${sel.name}") }
             AssetKind.SHADER -> { pm.menu.add("Edit"); if (sel != null) pm.menu.add("Use shader on ${sel.name}") }
             AssetKind.ANIMATION -> { pm.menu.add("Edit"); if (sel != null) pm.menu.add("Play on ${sel.name}") }
@@ -883,6 +1043,13 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                     history.record(state.selectedId)
                     synchronized(engine.lock) { sel.add(AudioSource().also { it.clip = name }) }
                     inspector.rebuild()
+                }
+                kind == AssetKind.TEXTURE && t == "Texture settings…" -> textureSettingsDialog(name)
+                kind == AssetKind.TEXTURE && t.startsWith("Edit in Sprite Studio") -> {
+                    val i = Intent(this, SpriteStudioActivity::class.java)
+                        .putExtra("project", project.name)
+                        .putExtra("texture", name)
+                    startActivity(i)
                 }
                 t == "Delete" -> MaterialAlertDialogBuilder(this)
                     .setTitle("Delete $name?")

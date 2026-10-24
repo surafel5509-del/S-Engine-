@@ -188,4 +188,51 @@ void main() {
   gl_FragColor = vec4(c, 1.0);
 }
 """
+
+    override val lightVs = """
+uniform mat4 uViewProj;
+uniform vec2 uCenter;
+uniform vec2 uSize;
+attribute vec2 aPos;
+varying vec2 vWorld;
+void main() {
+  vWorld = uCenter + aPos * uSize;
+  gl_Position = uViewProj * vec4(vWorld, 0.0, 1.0);
+}
+"""
+
+    override val lightFs = """
+precision mediump float;
+varying vec2 vWorld;
+uniform vec2 uLightPos;
+uniform vec4 uColor;
+uniform float uRadius;
+uniform float uInner;
+uniform float uFalloff;
+uniform vec2 uSpotDir;
+uniform float uSpotCos;
+uniform float uSpotSoft;
+uniform float uKind;
+uniform float uUseTex;
+uniform sampler2D uTex;
+void main() {
+  float r = max(uRadius, 0.001);
+  float atten = 1.0;
+  if (uKind < 1.5) {
+    float dist = length(vWorld - uLightPos);
+    atten = clamp(1.0 - (dist - uInner) / max(r - uInner, 0.001), 0.0, 1.0);
+    atten = pow(atten, max(uFalloff, 0.05));
+  } else if (uKind < 2.5) {
+    vec2 d = vWorld - uLightPos;
+    float dist = length(d);
+    atten = clamp(1.0 - (dist - uInner) / max(r - uInner, 0.001), 0.0, 1.0);
+    atten = pow(atten, max(uFalloff, 0.05));
+    float c = dot(d / max(dist, 0.0001), uSpotDir);
+    atten *= smoothstep(uSpotCos - uSpotSoft, uSpotCos + uSpotSoft, c);
+  }
+  vec3 col = uColor.rgb * atten;
+  if (uUseTex > 0.5) col *= texture2D(uTex, (vWorld - uLightPos) / (2.0 * r) + 0.5).rgb;
+  gl_FragColor = vec4(col, 1.0);
+}
+"""
 }
