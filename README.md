@@ -1,405 +1,134 @@
-# S Engine Ultra Edition
+# S Engine
 
-**S Engine Ultra** is a professional-grade 2D/3D game engine and complete visual editor suite running on Android — built from scratch in Kotlin with OpenGL ES 2.0/3.0 rendering. A full Unity-class engine with **22,400+ lines of code**, **85 source files**, and **50+ built-in component types**.
+**S Engine** is a 2D game engine **and** full visual editor that runs entirely on an Android phone or tablet – think "a small Unity in your pocket". Create a project, build scenes with a hierarchy / inspector / gizmos, write JavaScript behaviours in the built-in code editor, press **Play** to test immediately, then run your game full-screen.
 
-> Custom renderer, physics engine, scripting runtime, visual editors, skeleton animation, timeline, material system, visual scripting, pathfinding, inventory, dialogue, ECS, procedural generation, 2D lighting, and **3 full professional game templates**.
+> Written from scratch in Kotlin. OpenGL ES 3.0 renderer (ES 2.0 fallback), custom physics, Mozilla Rhino JavaScript runtime. No NDK, no external game frameworks.
 
 ---
 
-## 🏆 Ultra Edition — What's Included
+## Features
 
-### 🎯 50+ Built-in Components
-
-| Category | Components |
+| Area | What you get |
 |---|---|
-| **Rendering 2D** | SpriteRenderer, TextRenderer, Animator, ParticleEmitter, Camera, ParticleSystemV2 |
-| **Rendering 3D** | MeshRenderer, Camera3D, Light |
-| **UI System** | UICanvas, RectTransform, UIImage, UIText, UIButton, UISlider, UIScrollRect, UIPanel, UIProgressBar, UIToggle, UIDropdown, UIInputField, UILayoutGroup |
-| **Skeleton Animation** | SkeletonRenderer, SkeletonAnimator |
-| **Physics 2D** | Rigidbody2D, Collider2D |
-| **Physics 3D** | Rigidbody3D, Collider3D |
-| **Physics Joints** | SpringJoint2D, DistanceJoint2D, HingeJoint2D, WheelJoint2D, TargetJoint2D, RopeJoint2D, RelativeJoint2D |
-| **Camera System** | VirtualCamera, CameraPath |
-| **2D Lighting** | Light2D, DayNightCycle |
-| **Pathfinding & AI** | NavAgent, NavSurface |
-| **Tilemap** | Tilemap |
-| **Prefabs** | PrefabLink |
-| **Audio** | AudioSource, AudioMixer |
-| **Scripting** | Script, Blueprint |
-| **Materials** | TextureImporter, Material |
+| **Project manager** | Create from templates, open, play, rename, duplicate, delete, export / import projects as `.zip` |
+| **AI Game Builder** | Offline template planner plus reviewable, validated scene edits; optional direct OpenRouter mode with a user-supplied encrypted on-device key, or authenticated Supabase Edge Function → OpenRouter mode. No AI-generated source is executed; template scripts run only during creation smoke checks, not when editing existing projects. See [setup and limits](docs/ai-game-builder.md). |
+| **Scene editor** | Viewport with grid, pan (drag) & pinch-zoom, tap-to-select, **Move / Rotate / Scale gizmos** with axis handles, snapping, frame selected |
+| **Hierarchy** | Parent/child tree, collapse, visibility toggle, rename / duplicate / delete / reorder / create child / unparent |
+| **Inspector** | Edit name, tag, sorting order, parent, transform (drag labels to scrub values), every component property, color picker, asset pickers, add / remove / reorder / reset components |
+| **Undo / Redo** | Snapshot-based history for every edit |
+| **Play mode** | Play / Pause / Step frame inside the editor; scene is restored when you stop (like Unity) |
+| **Rendering** | Textured sprites with flip, UV animation, editable normalized pivots, text, custom shaders, and sorting |
+| **Physics 2D** | Fixed-step rigidbodies, oriented boxes & circles, gravity, friction/restitution, contact-point impulses, angular inertia/torque, optional rotation lock, triggers and grounded detection |
+| **Physics 3D** | Box/sphere rigidbodies, gravity, restitution/friction, raycasts, contact-point angular impulses and editable inertia/rotation lock |
+| **Particles** | Continuous or burst emitters with color/size curves, speed & size variance, gravity, drag, rotation/spin, textures and additive blending |
+| **Scripting** | JavaScript (ES6 subset via Rhino) with `start`, `update(dt)`, `onCollision`, `onTrigger`, `onTap`… plus timers, spawning, messaging, torque and impulses |
+| **Code editor** | Syntax highlighting, auto-indent, undo/redo, quick-symbol keyboard row, built-in API reference |
+| **Assets & animation** | Import images/sounds, edit sprite-sheet clips, set frame rate/order/loop and per-clip pivot in the Sprite & Animation Editor |
+| **Audio** | `AudioSource` component + `audio.play()` / `audio.beep()` |
+| **Input & controllers** | Classic joystick/action buttons, drive pedals, optional calibrated phone-tilt steering/balance, touch, hardware keyboard & gamepad |
+| **Scenes** | Multiple scenes per project, start scene, `scene.load("Level2")` |
+| **Player** | Full-screen runtime ("Build & Run") with landscape / portrait setting |
+
+### Built-in components
+`SpriteRenderer`, `TextRenderer`, `Camera` (size, background, follow target with smoothing), `Rigidbody2D`, `Collider2D`, `Script`, `ParticleEmitter`, `AudioSource`.
+
+### Templates
+* **Empty 2D** – camera + square
+* **Platformer Demo** *(2D)* – run, jump, moving platform, collectible coins and score UI
+* **Space Shooter** *(2D)* – enemy waves, bullets, explosions, scoring and game-over flow
+* **Physics Sandbox** *(2D)* – drop rolling crates and bouncing balls into a ramp-and-wall arena
+* **3D Demo** – third-person movement, lights, models, pickups, raycasts and a tumbling angular crate
+* **Hill Climb Racer** *(2D)* – spring-suspended 4×4, generated road, distinct Country/Desert/Frost/Moon stages, hazards, fuel, coins, garage upgrades, three rotating challenges and accelerometer balance controls. It is available from **New Project** and ships as the sample driving game.
 
 ---
 
-## 🚀 Professional Systems
-
-### 1. 🗺️ A* Pathfinding & AI
-- Full **A* pathfinding** on configurable navigation grids
-- 8-directional movement with diagonal cost calculation
-- **AI behaviors**: Wander, Pursue, Flee, Arrive
-- NavAgent component with auto-repathing, stopping distance, acceleration
-- Path smoothing and obstacle avoidance
-- Grid-based NavSurface with walkability/cost editing
-
-### 2. 📦 Prefab System
-- Reusable game object templates (like Unity Prefabs)
-- **PrefabLibrary** for project-wide template management
-- Instantiation with position/parent support
-- Property override tracking
-- Category and tag-based organization
-- Variant prefabs (prefab of prefabs)
-
-### 3. ✨ Advanced Particle System V2
-- **Sub-emitters** (birth, death, collision, trigger)
-- **Trail system** with configurable width/color
-- **Force zones**: Point, Directional, Vortex, Noise
-- **Collision** with surfaces and tags
-- **Color gradient** and **curve-driven** size/rotation
-- Multiple emission shapes: Point, Circle, Rectangle, Cone, Edge
-- 3 blend modes: Alpha, Additive, Multiply
-- Pre-warming, burst emission, looping
-
-### 4. 🗺️ 2D Tilemap System
-- Multi-layer tilemap with sorting
-- Tile palettes with animation support
-- **Auto-tiling** based on neighbors
-- Procedural dungeon generation (rooms + corridors)
-- Procedural noise terrain (FBM with octaves)
-- Collision and pathfinding cost integration
-- Configurable cell size and anchors
-
-### 5. 🔗 Physics Joints (7 Types)
-- **Spring Joint** — Hooke's law with damping
-- **Distance Joint** — Fixed/min/max distance
-- **Hinge Joint** — Rotation with limits and motor
-- **Wheel Joint** — Vehicle suspension with spring
-- **Target Joint** — Pull toward target position
-- **Rope Joint** — Maximum distance constraint
-- **Relative Joint** — Lock relative position/rotation
-- All joints support break force
-
-### 6. 🎥 Cinemachine-Style Camera System
-- **Virtual cameras** with priorities
-- **Camera blending** with eased transitions
-- **Screen composition**: dead zone, soft zone, bias
-- **Look-ahead** target prediction
-- **Camera confiner** (keep within bounds)
-- **Noise/shake** with amplitude/frequency
-- **Camera impulse** system (event-driven shake)
-- **Camera paths** with smooth waypoint interpolation
-- SmoothDamp helper for Unity-like smooth following
-
-### 7. 🎵 Audio Mixer
-- Multi-channel mixing: Master, Music, SFX, Ambient, UI
-- Per-channel volume, pitch, pan
-- Mute/solo support
-- Channel hierarchy (parent buses)
-- Audio effects: Reverb, LowPass, HighPass, Echo, Distortion, Compressor
-- **Spatial audio** with logarithmic/linear rolloff
-- Doppler effect support
-- Audio snapshots for quick transitions
-
-### 8. 🌍 Localization System
-- Multi-language string tables
-- Parameter substitution: `"Hello {name}!"`
-- Plural rules (zero, one, few, many)
-- Runtime language switching
-- JSON import/export
-
-### 9. 💾 Save System
-- Multiple save slots with metadata
-- Play time tracking, timestamp, scene name
-- **XOR encryption** for save data protection
-- Auto-save interval support
-- JSON serialization with type preservation
-- Play time formatting (HH:MM:SS)
-
-### 10. 🎬 Scene Manager
-- **Additive scene loading**
-- Scene transitions with effects (Fade, Slide, Wipe, Dissolve)
-- **Persistent objects** across scene changes
-- Scene stacking and unloading
-- Transition progress tracking
-
-### 11. 💬 Dialogue System
-- **Branching dialogue trees** with multiple speakers
-- **Choice-based** branching with conditions
-- **Condition evaluation**: equals, not equals, greater, less, has, not has
-- **Commands**: set variables, give items, play animations, play sounds
-- "Once" choices (hide after selected)
-- Runtime dialogue player with state management
-- Portrait support
-
-### 12. 🎒 Inventory & Item System
-- **Item definitions** with stats, rarity, categories
-- **Stackable** and non-stackable items
-- Equipment system with 8 slots (Head, Body, Hands, Feet, Weapon, Offhand, Accessory)
-- Item categories: Weapon, Armor, Consumable, Material, Quest, Misc
-- 5 rarity tiers: Common, Uncommon, Rare, Epic, Legendary
-- **Crafting recipes** with ingredient requirements
-- Gold/currency tracking
-- Durability system
-- Weight system for encumbrance
-
-### 13. 🏗️ Procedural Generation
-- **Perlin noise** with FBM (Fractal Brownian Motion)
-- Heightmap generation with configurable octaves/lacunarity
-- **Poisson disk sampling** for natural distribution
-- **BSP dungeon generation** (rooms + corridors)
-- **L-systems** for vegetation/organic structures
-- Seed-based deterministic generation
-
-### 14. 💡 2D Dynamic Lighting
-- Point, Directional, and Spot lights
-- Light falloff with inner/outer radius
-- **Normal-mapped** 2D lighting
-- Light masks/cookies
-- 3 blend modes: Additive, Multiply, Overlay
-- **Flicker effect** with configurable speed/range
-- **Day/Night cycle** with ambient color transitions
-- Shadow casting support
-- Light probes for baked GI
-- Manager for efficient multi-light queries
-
-### 15. 🧬 Entity Component System (ECS)
-- Data-oriented design for high-performance gameplay
-- Component stores with O(1) lookup
-- Tag system for entity grouping
-- Multi-component queries
-- Built-in ECS components: Transform, Velocity, Health, Damage, Sprite, AI State
-- Complements the existing GameObject hierarchy
-
----
-
-## 🎮 Professional Game Templates
-
-### 2D Platformer Adventure
-Full professional platformer with:
-- Character controller (run, jump, double-jump, wall-jump, dash, coyote time)
-- Walker/flyer enemies with patrol AI
-- Coins, health pickups, checkpoints, level end portal
-- Parallax backgrounds, moving platforms
-- Professional HUD (health bar, coin counter, score)
-
-### 3D Endless Runner
-Professional 3D runner with:
-- 3-lane switching system
-- Procedural obstacles, coin collection
-- Power-ups (shield, magnet, score multiplier)
-- Dynamic camera, fog, lighting
-- Particle trails, environment decoration
-- Score/distance tracking with speed progression
-
-### Top-Down RPG ⭐ (NEW)
-Professional top-down RPG with:
-- 8-directional player movement with combat
-- NPC dialogue system with branching choices
-- Inventory system with equipment slots
-- Enemy AI with patrol, chase, and attack states
-- Quest tracking, XP/leveling system
-- Treasure chests with loot tables
-- Day/Night cycle with dynamic lighting
-- Procedural dungeon entrance
-- Professional RPG HUD (health bar, XP bar, gold, level, quest log)
-- Save/Load support
-
----
-
-## 🛠️ Professional Editor Suite
-
-| Editor | Description |
-|---|---|
-| **Scene Editor** | Full viewport with hierarchy, inspector, gizmos, grid, play controls |
-| **Script Editor** | Syntax-highlighted JavaScript editor with API reference |
-| **Animation Editor** | Sprite-sheet clip editor with frame selection, pivot editing |
-| **UI Editor** | Visual canvas editor with drag-drop, anchor presets, element tree |
-| **Skeleton Editor** | Bone hierarchy editor with IK handles, keyframe timeline |
-| **Timeline Editor** | Multi-track animation with curve editor and state machine |
-| **Material Editor** | PBR material properties, texture import, sprite slicing |
-| **Blueprint Editor** | Visual scripting with 50+ node types and code generation |
-| **Asset Store** | Browse and import game assets |
-| **Build** | Export project as standalone APK |
-
----
-
-## 📊 Final Stats
-
-| Metric | Value |
-|--------|-------|
-| **Total Kotlin files** | 85 |
-| **Total lines of code** | 22,409 |
-| **Built-in components** | 50+ |
-| **Professional systems** | 20+ |
-| **Game templates** | 11 |
-| **Editor activities** | 12+ |
-| **Asset types** | 13 |
-
-### Line Counts by System
-
-| System | Lines |
-|--------|-------|
-| Tilemap System | 380 |
-| Particle System V2 | 360 |
-| Pathfinding & AI | 343 |
-| Procedural Generation | 308 |
-| Inventory System | 244 |
-| Physics Joints | 230 |
-| Camera System | 230 |
-| 2D Lighting | 224 |
-| Dialogue System | 205 |
-| Audio Mixer | 187 |
-| ECS | 188 |
-| Prefab System | 150 |
-| Save System | 146 |
-| Scene Manager | 118 |
-| Localization | 88 |
-
----
-
-## Scripting API
+## Scripting example
 
 ```js
-// Full JavaScript (ES6) via Mozilla Rhino
-function start() { log("Hello from " + self.name); }
+// Player.js  – params on the Script component: "speed=6, jump=11"
+var coins = 0;
+
 function update(dt) {
-    self.vx = input.axisX * speed;
-    if (input.aDown && self.grounded) { self.vy = jump; audio.beep(); }
+    self.vx = input.axisX * speed;              // joystick / A-D keys
+    if (input.aDown && self.grounded) {         // A button / Space
+        self.vy = jump;
+        audio.beep();
+    }
+    if (self.y < -12) scene.reload();
 }
+
 function onTrigger(other) {
-    if (other.tag == "Coin") { coins++; other.destroy(); }
+    if (other.tag == "Coin") {
+        coins++;
+        var fx = scene.spawn("CoinFX", other.worldX, other.worldY);
+        fx.burst(24);
+        after(1.5, function () { fx.destroy(); });
+        other.destroy();
+        scene.find("ScoreText").text = "Coins: " + coins;
+    }
 }
 ```
 
-### API: self, input, scene, audio, storage, time, helpers
+### API summary
+
+* **Lifecycle:** `start()`, `update(dt)`, `onCollision(other)`, `onTrigger(other)`, `onTriggerExit(other)`, `onTap()`, `onDestroy()`, `onStop()`
+* **self / transform:** `name tag active order x y rotation scaleX scaleY worldX worldY vx vy grounded angularVelocity`, `setPosition() move() rotate() addForce() applyImpulse() addTorque() setVelocity() destroy() child() parent distanceTo() overlaps() send() burst() setEmitting() setTexture() hasComponent() setComponentEnabled()`; 3D bodies also expose `angularVelocityX/Y/Z` and `addTorque(x,y,z)`
+* **input:** `axisX axisY a b aDown bDown upgrade upgradeDown tiltX touching tapped touchX touchY`
+* **scene:** `find(name) findAll(tag) count(tag) spawn(name, x, y) load(name) reload() camera gravityX gravityY`
+* **save data:** `storage.get(key, fallback)` / `storage.set(key, value)` for project-scoped numbers, booleans and strings
+* **time:** `time.time time.frame time.fps` — **audio:** `play(file) beep() stopAll()`
+* **helpers:** `log() warn() error() after(sec, fn) every(sec, fn) random() randomInt() clamp() lerp()`
+
+Inactive objects make great **prefab templates** – `scene.spawn("Enemy", x, y)` clones them and activates the copy.
 
 ---
 
+## Download
+
+Every push and pull request runs the Android tests and builds both installable APK variants. Download them from **Actions → Build S Engine APK → latest successful run → Artifacts → `SEngine-Android-APKs`**. The artifact contains `app-debug.apk` and `app-release.apk` (the release variant is currently debug-key signed for convenient testing; replace the signing config before publishing).
+
+Enable "Install unknown apps" for your browser / file manager, then open the APK.
+
 ## Building
 
-Requirements: JDK 17, Android SDK (API 34), Android Studio Hedgehog+.
+Requirements: JDK 17 and the Android SDK (API 34). Android Studio Hedgehog or newer works out of the box.
 
 ```bash
 ./gradlew assembleDebug
 # APK: app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Minimum Android: 8.0 (API 26). Requires OpenGL ES 2.0.
+Every push is also built by GitHub Actions (`.github/workflows/android.yml`); download the APK from the run's **Artifacts** section.
 
----
+Minimum Android version: 8.0 (API 26). Requires OpenGL ES 2.0 at minimum. The renderer uses OpenGL ES 3.0 when the device driver supports it and falls back to ES 2.0 otherwise; the Editor and Player show the active backend (for example `GLES 3.0` or `GLES 2.0 (fallback)`). The manifest keeps ES 2.0 as the hard requirement, so ES 3.0 support is checked at runtime, not by install filtering.
+
+## Project layout
+
+```
+app/src/main/java/com/sengine/
+├── aibuilder/              versioned GameSpec, bounded tools, validation, provider and memory services
+├── engine/
+│   ├── Engine.kt            main loop, play/pause/stop, camera follow, particles
+│   ├── Input.kt, AudioSystem.kt
+│   ├── core/                GameObject, Component, Prop system, components, Scene + JSON serializer
+│   ├── math/Affine.kt       2D transforms
+│   ├── physics/             fixed-step 2D & 3D physics with angular contact impulses
+│   ├── anim/                sprite-sheet clips, normalized pivots and runtime animation
+│   ├── render/              OpenGL ES renderer (ES 3.0 primary, ES 2.0 fallback), textures/text/particles, editor grid & gizmos
+│   └── script/              Rhino JavaScript runtime + script API
+├── project/                 project storage, zip import/export, templates
+└── ui/                      Projects screen, Editor (hierarchy, inspector, viewport, assets, console),
+                             Script editor, full-screen Player, joystick, color picker
+```
+
+Projects are stored in app-private storage as plain JSON scenes plus an `assets/` folder:
+
+```
+<project>/project.json
+<project>/scenes/Main.scene.json
+<project>/assets/Player.js, hero.png, jump.wav …
+```
 
 ## License
 
 MIT
-
----
-
-## 🤖 AI Game Builder System
-
-### Overview
-
-S Engine now includes a **complete AI Game Builder** system with support for multiple AI providers. Generate scripts, design levels, write dialogue, fix bugs, and build entire games using natural language.
-
-### Supported AI Providers
-
-| Provider | Models | Best For |
-|----------|--------|----------|
-| **OpenAI (ChatGPT)** | GPT-4 Turbo, GPT-4, GPT-3.5 | Best overall quality, complex reasoning |
-| **Google Gemini** | Gemini Pro, Gemini 1.5 Pro | Good balance of speed and quality |
-| **OpenRouter** | 100+ models (GPT-4, Claude, Llama, etc.) | Access to many models via one API |
-| **Groq** | Llama 2 70B, Mixtral, Gemma | Ultra-fast inference, free tier |
-
-### AI Features
-
-#### 🗨️ AI Chat Assistant
-- Conversational interface for game development help
-- Context-aware responses using S Engine API knowledge
-- Quick actions for common tasks
-- Full chat history with scrolling
-
-#### 🎮 Full Game Generation
-- **Quick Generate** — Rapid prototyping from description
-- **Full Game** — Complete game with design doc, scene, scripts, and assets
-- Genre-specific templates (Platformer, RPG, Shooter, Puzzle, etc.)
-- Difficulty scaling (Simple, Medium, Complex)
-
-#### 📝 Script Generation
-- Generate player controllers, enemy AI, UI scripts
-- Object-type templates (Player, Enemy, NPC, Item, Platform)
-- Complete, working code with comments
-- S Engine API-aware generation
-
-#### 🔧 Code Analysis & Fixing
-- **Analyze** — Code quality review, bug detection, performance analysis
-- **Fix** — Describe the bug, get fixed code with explanations
-- **Optimize** — Performance optimization with explanations
-
-#### 🗺️ Level Design
-- AI-powered level layout generation
-- Genre and theme-specific designs
-- Enemy placement, collectibles, progression
-- Complete with coordinates and specifications
-
-#### 💬 Dialogue Generation
-- NPC dialogue with personality
-- Branching conversations
-- Quest dialogue
-- Multiple lines with proper formatting
-
-#### 📖 Code Explanation
-- Paste code or describe a concept
-- Get detailed explanations
-- Learn S Engine API and game dev concepts
-
-### AI Settings
-
-Configure in the **AI Settings** screen:
-- API keys for each provider (stored locally, encrypted)
-- Model selection per provider
-- Temperature (creativity level: 0.0-2.0)
-- Max tokens (response length)
-- Direct links to get API keys
-
-### Getting API Keys
-
-| Provider | Where to Get | Free Tier |
-|----------|-------------|-----------|
-| OpenAI | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | No |
-| Gemini | [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey) | Yes |
-| OpenRouter | [openrouter.ai/keys](https://openrouter.ai/keys) | Yes (some models) |
-| Groq | [console.groq.com/keys](https://console.groq.com/keys) | Yes |
-
-### AI Architecture
-
-```
-engine/ai/
-├── AISettings.kt         API key management, provider configuration
-├── AIProvider.kt         Provider interface, base implementation
-├── OpenAIProvider.kt     ChatGPT/GPT-4 integration
-├── GeminiProvider.kt     Google Gemini integration
-├── OpenRouterProvider.kt OpenRouter multi-model access
-├── GroqProvider.kt       Groq ultra-fast inference
-├── AIAssistant.kt        Main orchestration, chat, task management
-├── AIGameBuilder.kt      Full game generation pipeline
-└── AIPrompts.kt          Pre-built prompt templates
-
-ui/
-├── AIAssistantActivity.kt   Chat interface with quick actions
-├── AISettingsActivity.kt    API key & settings configuration
-└── AIGameBuilderActivity.kt Game generation interface
-```
-
-### AI Integration with Engine
-
-The AI system integrates directly with S Engine:
-- **Scene parsing** — AI-generated JSON becomes real game objects
-- **Script creation** — AI code is saved as project scripts
-- **Asset management** — AI-generated asset lists track needed resources
-- **Design documents** — Full game design saved to project
-- **Context awareness** — AI knows S Engine API and conventions
-
-### Privacy & Security
-
-- API keys stored **only on device** in encrypted settings
-- Requests sent **directly** to AI providers (no中间 server)
-- No conversation data stored by S Engine
-- Full transparency — open-source AI integration code
-

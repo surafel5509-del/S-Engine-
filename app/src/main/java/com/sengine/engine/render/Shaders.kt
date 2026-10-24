@@ -1,6 +1,8 @@
 package com.sengine.engine.render
 
 import android.opengl.GLES20
+import com.sengine.engine.render.api.ShaderDiagnostics
+import com.sengine.engine.render.api.ShaderSourceSet
 import com.sengine.project.Project
 
 /** Sprite program (built-in or user `effect()` shader). */
@@ -57,21 +59,30 @@ class PostProgram(val id: Int) {
 }
 
 /**
- * Compiles and caches GPU programs. User shaders (`.glsl` assets) define
- *   vec4 effect(vec4 color, vec2 uv)
- * with uTime, uParam, uTex and uResolution available.
+ * Compiles and caches GPU programs for one GLSL dialect ([ShaderSourceSet]). User shaders (`.glsl` assets)
+ * define `vec4 effect(vec4 color, vec2 uv)` with uTime, uParam, uTex and uResolution available.
+ * Call [init] after the GL context is created (and again after every context loss). GL thread only.
  */
 class ShaderLibrary(private val project: Project, private val log: (String) -> Unit) {
     private val sprites = HashMap<String, Pair<Long, SpriteProgram?>>()
     private val meshes = HashMap<String, Pair<Long, MeshProgram?>>()
     private val posts = HashMap<String, Pair<Long, PostProgram?>>()
+    private var sources: ShaderSourceSet? = null
     lateinit var defaultSprite: SpriteProgram
     lateinit var defaultMesh: MeshProgram
 
-    fun init() {
+    /** The dialect in use, or null before [init]. */
+    val dialect get() = sources?.dialect
+
+    /** Builds the built-in programs for [set]. Throws [GraphicsInitException] if they cannot be built. */
+    fun init(set: ShaderSourceSet) {
         sprites.clear(); meshes.clear(); posts.clear()
-        defaultSprite = SpriteProgram(GL.tryCompile(SPRITE_VS, spriteFs(DEFAULT_EFFECT)).first)
-        defaultMesh = MeshProgram(GL.tryCompile(MESH_VS, meshFs(DEFAULT_EFFECT)).first)
+        sources = null
+        val spriteFs = set.spriteFs(DEFAULT_EFFECT)
+        defaultSprite = SpriteProgram(GL.compileOrThrow("sprite (${set.dialect.name})", set.spriteVs, spriteFs))
+        val meshFs = set.meshFs(DEFAULT_EFFECT)
+        defaultMesh = MeshProgram(GL.compileOrThrow("mesh (${set.dialect.name})", set.meshVs, meshFs))
+        sources = set
     }
 
     private fun source(name: String): Pair<Long, String>? {
@@ -84,8 +95,10 @@ class ShaderLibrary(private val project: Project, private val log: (String) -> U
         if (name.isBlank()) return null
         val (stamp, src) = source(name) ?: return null
         sprites[name]?.let { if (it.first == stamp) return it.second }
-        val (id, err) = GL.tryCompile(SPRITE_VS, spriteFs(src))
-        if (err != null) log("Shader $name: ${err.trim()}")
+        val set = sources ?: return null
+        val fs = set.spriteFs(src)
+        val (id, err) = GL.tryCompile(set.spriteVs, fs)
+        if (err != null) log(ShaderDiagnostics.describe(name, set.dialect, err, fs, src))
         val p = if (id != 0) SpriteProgram(id) else null
         sprites[name] = stamp to p
         return p
@@ -95,8 +108,10 @@ class ShaderLibrary(private val project: Project, private val log: (String) -> U
         if (name.isBlank()) return null
         val (stamp, src) = source(name) ?: return null
         meshes[name]?.let { if (it.first == stamp) return it.second }
-        val (id, err) = GL.tryCompile(MESH_VS, meshFs(src))
-        if (err != null) log("Shader $name: ${err.trim()}")
+        val set = sources ?: return null
+        val fs = set.meshFs(src)
+        val (id, err) = GL.tryCompile(set.meshVs, fs)
+        if (err != null) log(ShaderDiagnostics.describe(name, set.dialect, err, fs, src))
         val p = if (id != 0) MeshProgram(id) else null
         meshes[name] = stamp to p
         return p
@@ -104,6 +119,7 @@ class ShaderLibrary(private val project: Project, private val log: (String) -> U
 
     /** Built-in effect index (1..8) or custom asset. */
     fun post(builtin: Int, custom: String): PostProgram? {
+        val set = sources ?: return null
         val key: String
         val src: String
         val stamp: Long
@@ -114,8 +130,9 @@ class ShaderLibrary(private val project: Project, private val log: (String) -> U
             key = custom; src = s.second; stamp = s.first
         }
         posts[key]?.let { if (it.first == stamp) return it.second }
-        val (id, err) = GL.tryCompile(POST_VS, postFs(src))
-        if (err != null) log("Post shader $key: ${err.trim()}")
+        val fs = set.postFs(src)
+        val (id, err) = GL.tryCompile(set.postVs, fs)
+        if (err != null) log(ShaderDiagnostics.describe("post $key", set.dialect, err, fs, src))
         val p = if (id != 0) PostProgram(id) else null
         posts[key] = stamp to p
         return p
@@ -123,147 +140,6 @@ class ShaderLibrary(private val project: Project, private val log: (String) -> U
 
     companion object {
         const val DEFAULT_EFFECT = "vec4 effect(vec4 color, vec2 uv) { return color; }"
-
-        const val SPRITE_VS = """
-uniform mat4 uMVP;
-uniform vec4 uUV;
-attribute vec2 aPos;
-varying vec2 vP;
-varying vec2 vUV;
-void main() {
-  vP = aPos;
-  vec2 t = aPos + 0.5;
-  vUV = vec2(mix(uUV.x, uUV.z, t.x), mix(uUV.y, uUV.w, t.y));
-  gl_Position = uMVP * vec4(aPos, 0.0, 1.0);
-}
-"""
-
-        fun spriteFs(effect: String) = """
-precision mediump float;
-varying vec2 vP;
-varying vec2 vUV;
-uniform vec4 uColor;
-uniform sampler2D uTex;
-uniform float uUseTex;
-uniform float uShape;
-uniform float uAA;
-uniform float uTime;
-uniform float uParam;
-uniform vec2 uResolution;
-$effect
-void main() {
-  float a = 1.0;
-  if (uShape > 0.5 && uShape < 1.5) {
-    a = clamp((0.5 - length(vP)) * uAA, 0.0, 1.0);
-  } else if (uShape > 1.5 && uShape < 2.5) {
-    float w = (0.5 - vP.y) * 0.5;
-    float e = min(w - abs(vP.x), vP.y + 0.5);
-    a = clamp(e * uAA, 0.0, 1.0);
-  } else if (uShape > 2.5) {
-    float d = length(vP);
-    a = clamp((0.5 - d) * uAA, 0.0, 1.0) * clamp((d - 0.40) * uAA, 0.0, 1.0);
-  }
-  vec4 c = uColor;
-  if (uUseTex > 0.5) c *= texture2D(uTex, vUV);
-  c.a *= a;
-  gl_FragColor = effect(c, vUV);
-}
-"""
-
-        const val MESH_VS = """
-uniform mat4 uMVP;
-uniform mat4 uModel;
-uniform mat4 uNormalMat;
-attribute vec3 aPos;
-attribute vec3 aNormal;
-attribute vec2 aUV;
-varying vec3 vWorld;
-varying vec3 vNormal;
-varying vec2 vUV;
-void main() {
-  vWorld = (uModel * vec4(aPos, 1.0)).xyz;
-  vNormal = (uNormalMat * vec4(aNormal, 0.0)).xyz;
-  vUV = aUV;
-  gl_Position = uMVP * vec4(aPos, 1.0);
-}
-"""
-
-        fun meshFs(effect: String) = """
-precision mediump float;
-varying vec3 vWorld;
-varying vec3 vNormal;
-varying vec2 vUV;
-uniform vec4 uColor;
-uniform sampler2D uTex;
-uniform float uUseTex;
-uniform float uTiling;
-uniform vec3 uCamPos;
-uniform vec3 uAmbient;
-uniform vec3 uDirDir;
-uniform vec3 uDirColor;
-uniform vec4 uPointPos[4];
-uniform vec3 uPointColor[4];
-uniform float uSpec;
-uniform float uShine;
-uniform float uEmission;
-uniform float uUnlit;
-uniform vec3 uFogColor;
-uniform vec3 uFog;
-uniform float uTime;
-uniform float uParam;
-uniform vec2 uResolution;
-$effect
-void main() {
-  vec4 base = uColor;
-  vec2 uv = vUV * uTiling;
-  if (uUseTex > 0.5) base *= texture2D(uTex, uv);
-  vec3 col = base.rgb;
-  if (uUnlit < 0.5) {
-    vec3 n = normalize(vNormal);
-    vec3 v = normalize(uCamPos - vWorld);
-    vec3 l = normalize(-uDirDir);
-    float diff = max(dot(n, l), 0.0);
-    vec3 h = normalize(l + v);
-    float spec = pow(max(dot(n, h), 0.0), uShine) * uSpec;
-    vec3 light = uAmbient + uDirColor * diff;
-    vec3 specular = uDirColor * spec * step(0.0001, diff);
-    for (int i = 0; i < 4; i++) {
-      vec3 d = uPointPos[i].xyz - vWorld;
-      float dist = length(d);
-      float att = clamp(1.0 - dist / max(uPointPos[i].w, 0.001), 0.0, 1.0);
-      att *= att;
-      vec3 pl = d / max(dist, 0.0001);
-      float pd = max(dot(n, pl), 0.0);
-      light += uPointColor[i] * pd * att;
-      specular += uPointColor[i] * pow(max(dot(n, normalize(pl + v)), 0.0), uShine) * uSpec * att * step(0.0001, pd);
-    }
-    col = col * light + specular;
-  }
-  col += base.rgb * uEmission;
-  if (uFog.z > 0.5) {
-    float f = clamp((length(uCamPos - vWorld) - uFog.x) / max(uFog.y - uFog.x, 0.001), 0.0, 1.0);
-    col = mix(col, uFogColor, f);
-  }
-  gl_FragColor = effect(vec4(col, base.a), uv);
-}
-"""
-
-        const val POST_VS = """
-attribute vec2 aPos;
-varying vec2 vUV;
-void main() { vUV = aPos * 0.5 + 0.5; gl_Position = vec4(aPos, 0.0, 1.0); }
-"""
-
-        fun postFs(effect: String) = """
-precision mediump float;
-varying vec2 vUV;
-uniform sampler2D uTex;
-uniform float uTime;
-uniform float uParam;
-uniform vec2 uResolution;
-$effect
-void main() { gl_FragColor = effect(texture2D(uTex, vUV), vUV); }
-"""
 
         /** Index matches ComponentRegistry.POST_FX. uParam = intensity. */
         val POST_EFFECTS = listOf(

@@ -16,6 +16,8 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
 import com.sengine.engine.Engine
+import com.sengine.engine.platform.android.GlSurface
+import com.sengine.engine.platform.android.GraphicsStatus
 import com.sengine.engine.render.SceneRenderer
 import com.sengine.project.ProjectManager
 
@@ -30,7 +32,7 @@ class PlayerActivity : AppCompatActivity() {
     private val handler = Handler(Looper.getMainLooper())
     private val fpsTick = object : Runnable {
         override fun run() {
-            fpsText.text = "${engine.fps.toInt()} FPS"
+            fpsText.text = "${engine.fps.toInt()} FPS  •  ${GraphicsStatus.label()}"
             handler.postDelayed(this, 500)
         }
     }
@@ -55,7 +57,7 @@ class PlayerActivity : AppCompatActivity() {
 
         val root = FrameLayout(this)
         glView = GLSurfaceView(this).apply {
-            setEGLContextClientVersion(2)
+            GlSurface.install(this) { engine.log(0, it) }
             setRenderer(SceneRenderer(engine, null))
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
@@ -109,6 +111,7 @@ class PlayerActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         glView.onResume()
+        if (::engine.isInitialized) engine.log(0, "Activity resumed: GL surface resumed")
         if (tiltEnabled) tiltInput?.start()
         handler.post(fpsTick)
         hideSystemUi()
@@ -118,6 +121,7 @@ class PlayerActivity : AppCompatActivity() {
         tiltInput?.stop()
         super.onPause()
         glView.onPause()
+        if (::engine.isInitialized) engine.log(0, "Activity paused: GL surface paused")
         handler.removeCallbacks(fpsTick)
     }
 

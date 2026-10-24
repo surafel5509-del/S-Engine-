@@ -15,7 +15,7 @@ import org.mozilla.javascript.ScriptableObject
  * JavaScript behaviour runtime backed by Mozilla Rhino (interpreted mode).
  * Every Script component gets its own scope whose prototype is the shared global scope.
  */
-class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
+class ScriptSystem(val engine: Engine, private val enabled: Boolean = true) : PhysicsWorld.Listener {
 
     private class Instance(val go: GameObject, val comp: ScriptComponent, val scope: Scriptable) {
         var started = false
@@ -33,6 +33,7 @@ class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
     val isRunning get() = cx != null
 
     fun begin() {
+        if (!enabled) return
         end()
         val c = Context.enter()
         c.optimizationLevel = -1
@@ -48,7 +49,7 @@ class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
         put(g, "time", STime(engine))
         put(g, "scene", SScene(engine, this))
         put(g, "audio", SAudio(engine))
-        put(g, "storage", SStorage(engine.project))
+        put(g, "storage", SStorage(engine.scriptStorageProject))
         put(g, "console", SConsole(engine))
         c.evaluateString(g, PRELUDE, "prelude", 1, null)
         compiled.clear()
@@ -95,7 +96,7 @@ class ScriptSystem(val engine: Engine) : PhysicsWorld.Listener {
             val script = compiled[comp.script] ?: run {
                 val raw = engine.project.readAsset(comp.script)
                 val src = if (raw != null && comp.script.endsWith(".bp")) {
-                    try { null }
+                    try { com.sengine.engine.blueprint.BlueprintCompiler.compile(com.sengine.engine.blueprint.Blueprint.parse(raw)) }
                     catch (e: Exception) { engine.log(2, "Blueprint ${comp.script}: ${e.message}"); null }
                 } else raw
                 if (src == null) {

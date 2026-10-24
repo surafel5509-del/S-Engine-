@@ -157,18 +157,18 @@ object AssetLibrary {
     private fun bpRotator(): String {
         val bp = Blueprint()
         val u = bp.add("OnUpdate", 40f, 40f); val r = bp.add("Rotate", 300f, 40f)
-        bp.connect(u.id, "out", r.id, "in")
+        bp.connect(u.id, "out", r.id)
         return bp.toJson().toString(2)
     }
 
     private fun bpCollectible(): String {
         val bp = Blueprint()
         val t = bp.add("OnTrigger", 40f, 40f)
-        val cond = bp.add("If", 300f, 40f); cond.properties["condition"] = "other.tag == \"Player\""
+        val cond = bp.add("If", 300f, 40f); cond.params["condition"] = "other.tag == \"Player\""
         val add = bp.add("AddVar", 560f, 20f)
         val snd = bp.add("PlaySound", 820f, 20f)
         val kill = bp.add("DestroySelf", 1080f, 20f)
-        bp.connect(t.id, "out", cond.id, "in"); bp.connect(cond.id, "true", add.id, "in"); bp.connect(add.id, "out", snd.id, "in"); bp.connect(snd.id, "out", kill.id, "in")
+        bp.connect(t.id, "out", cond.id); bp.connect(cond.id, "true", add.id); bp.connect(add.id, "out", snd.id); bp.connect(snd.id, "out", kill.id)
         return bp.toJson().toString(2)
     }
 
@@ -176,20 +176,20 @@ object AssetLibrary {
         val bp = Blueprint()
         val u = bp.add("OnUpdate", 40f, 40f)
         val ctl = bp.add("Platformer", 300f, 40f)
-        val cond = bp.add("If", 560f, 40f); cond.properties["condition"] = "Math.abs(self.vx) > 0.1"
-        val run = bp.add("PlayAnimation", 820f, 0f); run.properties["clip"] = "HeroRun.anim"
-        val idle = bp.add("Code", 820f, 140f); idle.properties["code"] = "self.stopAnimation()"
-        bp.connect(u.id, "out", ctl.id, "in"); bp.connect(ctl.id, "out", cond.id, "in"); bp.connect(cond.id, "true", run.id, "in"); bp.connect(cond.id, "false", idle.id, "in")
-        val a = bp.add("OnButtonA", 40f, 260f); val snd = bp.add("PlaySound", 300f, 260f); snd.properties["file"] = "jump.wav"
-        bp.connect(a.id, "out", snd.id, "in")
+        val cond = bp.add("If", 560f, 40f); cond.params["condition"] = "Math.abs(self.vx) > 0.1"
+        val run = bp.add("PlayAnimation", 820f, 0f); run.params["clip"] = "HeroRun.anim"
+        val idle = bp.add("Code", 820f, 140f); idle.params["code"] = "self.stopAnimation()"
+        bp.connect(u.id, "out", ctl.id); bp.connect(ctl.id, "out", cond.id); bp.connect(cond.id, "true", run.id); bp.connect(cond.id, "false", idle.id)
+        val a = bp.add("OnButtonA", 40f, 260f); val snd = bp.add("PlaySound", 300f, 260f); snd.params["file"] = "jump.wav"
+        bp.connect(a.id, "out", snd.id)
         return bp.toJson().toString(2)
     }
 
     private fun bpSpawner(): String {
         val bp = Blueprint()
-        val t = bp.add("OnTimer", 40f, 40f); t.properties["seconds"] = "2"
-        val s = bp.add("Spawn", 300f, 40f); s.properties["template"] = "Enemy"; s.properties["x"] = "random(-6, 6)"; s.properties["y"] = "self.worldY"
-        bp.connect(t.id, "out", s.id, "in")
+        val t = bp.add("OnTimer", 40f, 40f); t.params["seconds"] = "2"
+        val s = bp.add("Spawn", 300f, 40f); s.params["template"] = "Enemy"; s.params["x"] = "random(-6, 6)"; s.params["y"] = "self.worldY"
+        bp.connect(t.id, "out", s.id)
         return bp.toJson().toString(2)
     }
 

@@ -46,6 +46,8 @@ import com.sengine.engine.core.Scene
 import com.sengine.engine.core.ScriptComponent
 import com.sengine.engine.core.SpriteRenderer
 import com.sengine.engine.core.TextRenderer
+import com.sengine.engine.platform.android.GlSurface
+import com.sengine.engine.platform.android.GraphicsStatus
 import com.sengine.engine.render.EditorState
 import com.sengine.engine.render.SceneRenderer
 import com.sengine.engine.render.Tool
@@ -88,6 +90,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
 
     private val handler = Handler(Looper.getMainLooper())
     private var lastObjectCount = -1
+    private var openedSceneSave: String? = null
     private var importKind = AssetKind.TEXTURE
 
     private val ticker = object : Runnable {
@@ -96,10 +99,10 @@ class EditorActivity : AppCompatActivity(), EditorHost {
             val count = engine.scene.objects.size
             if (engine.mode != Engine.Mode.EDIT && count != lastObjectCount) refreshHierarchy()
             val mode = when (engine.mode) { Engine.Mode.EDIT -> "EDIT"; Engine.Mode.PLAY -> "▶ PLAYING"; Engine.Mode.PAUSED -> "⏸ PAUSED" }
-            statsText.text = "$mode  •  ${engine.scene.name}  •  ${engine.fps.toInt()} FPS  •  $count objects" +
+            statsText.text = "$mode  •  ${engine.scene.name}  •  ${engine.fps.toInt()} FPS  •  ${GraphicsStatus.label()}  •  $count objects" +
                 (if (state.mode3D) "  •  3D" else "") + (if (controller.snap) "  •  snap" else "") +
-                if (state.showProfiler) String.format("\nscripts %.2f ms  •  physics %.2f ms  •  render %.2f ms  •  %d draw calls  •  heap %d MB",
-                    engine.scriptMs, engine.physicsMs, engine.renderMs, engine.drawCalls,
+                if (state.showProfiler) String.format("\nscripts %.2f ms  •  physics %.2f ms  •  render %.2f ms  •  %d draw calls  •  tex %d KB  •  heap %d MB",
+                    engine.scriptMs, engine.physicsMs, engine.renderMs, engine.drawCalls, engine.textureBytes / 1024,
                     (Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory()) / 1048576) else ""
             handler.postDelayed(this, 200)
         }
@@ -136,6 +139,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         val scene = if (project.sceneExists(sceneName)) project.loadScene(sceneName) else Scene(sceneName).also {
             it.create("Main Camera").add(Camera2D())
         }
+        openedSceneSave = project.sceneFile(sceneName).takeIf { it.isFile }?.readText()
         engine = Engine(project, scene)
         tiltInput = TiltInputController(this, engine.input)
         history = History(engine)
@@ -168,7 +172,9 @@ class EditorActivity : AppCompatActivity(), EditorHost {
 
     override fun onResume() {
         super.onResume()
+        reloadExternalSceneIfChanged()
         glView.onResume()
+        engine.log(0, "Activity resumed: GL surface resumed")
         if (project.controlScheme == "driveTilt") tiltInput?.start()
         handler.post(ticker)
         refreshAssets()
@@ -178,8 +184,30 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         tiltInput?.stop()
         super.onPause()
         glView.onPause()
+        engine.log(0, "Activity paused: GL surface paused")
         handler.removeCallbacks(ticker)
         if (engine.mode == Engine.Mode.EDIT && history.dirty) saveScene(silent = true)
+    }
+
+    /** Reload a validated file changed by the AI workspace while this editor was paused. */
+    private fun reloadExternalSceneIfChanged() {
+        if (!::engine.isInitialized || engine.mode != Engine.Mode.EDIT) return
+        val name = engine.scene.name
+        val file = project.sceneFile(name)
+        if (!file.isFile) return
+        val raw = try { file.readText() } catch (_: Exception) { return }
+        if (openedSceneSave == null || raw == openedSceneSave) return
+        try {
+            val reloaded = project.loadScene(name)
+            synchronized(engine.lock) { engine.replaceScene(reloaded) }
+            openedSceneSave = raw
+            history.clear(); history.dirty = false
+            state.selectedId = -1
+            refreshHierarchy(); inspector.rebuild(); updateTitle()
+            engine.log(0, "Reloaded externally saved changes to scene '$name'.")
+        } catch (e: Exception) {
+            engine.log(2, "Could not reload external changes to '$name': ${e.message}")
+        }
     }
 
     override fun onDestroy() {
@@ -225,6 +253,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         sep()
         tbtn("＋") { addObjectMenu(it) }
         tbtn("💾") { saveScene() }
+        tbtn("AI") { openAiBuilder() }
         tbtn("⋮") { mainMenu(it) }
         tbtn("▤") { toggle(inspectorPanel) }
         val tbScroll = HorizontalScrollView(this).apply { addView(tb); isHorizontalScrollBarEnabled = false; setBackgroundColor(C.HEADER) }
@@ -251,7 +280,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         // viewport
         val vp = FrameLayout(this)
         glView = GLSurfaceView(this).apply {
-            setEGLContextClientVersion(2)
+            GlSurface.install(this) { engine.log(0, it) }
             setRenderer(SceneRenderer(engine, state))
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
@@ -425,6 +454,15 @@ class EditorActivity : AppCompatActivity(), EditorHost {
     }
 
     // ================================================================== play / undo / save
+    private fun openAiBuilder() {
+        if (engine.mode != Engine.Mode.EDIT) {
+            toast("Stop play mode before opening the AI Builder")
+            return
+        }
+        if (!saveScene(silent = true)) return
+        startActivity(Intent(this, AiBuilderActivity::class.java).putExtra("project", project.name))
+    }
+
     private fun startPlay() {
         currentFocus?.let { it.clearFocus(); hideKeyboard(it) }
         consoleText.text = ""
@@ -449,14 +487,19 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         refreshHierarchy(); inspector.rebuild()
     }
 
-    private fun saveScene(silent: Boolean = false) {
-        if (engine.mode != Engine.Mode.EDIT) { if (!silent) toast("Stop play mode before saving"); return }
-        try {
+    private fun saveScene(silent: Boolean = false): Boolean {
+        if (engine.mode != Engine.Mode.EDIT) { if (!silent) toast("Stop play mode before saving"); return false }
+        return try {
             synchronized(engine.lock) { project.saveScene(engine.scene) }
             project.saveMeta()
+            openedSceneSave = project.sceneFile(engine.scene.name).takeIf { it.isFile }?.readText()
             history.dirty = false
             if (!silent) toast("Saved ${engine.scene.name}") else appendConsole(0, "Auto-saved ${engine.scene.name}")
-        } catch (e: Exception) { toast("Save failed: ${e.message}") }
+            true
+        } catch (e: Exception) {
+            toast("Save failed: ${e.message}")
+            false
+        }
     }
 
     // ================================================================== object creation
@@ -579,7 +622,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
             else -> "Classic joystick"
         }
         val entries = listOf(
-            "Save Scene", "Scenes…", "Build & Run (fullscreen)", "Build APK…", "Asset Store", "Sprite & Animation Editor",
+            "Save Scene", "AI Game Builder", "Scenes…", "Build & Run (fullscreen)", "Build APK…", "Asset Store", "Sprite & Animation Editor",
             "Control Scheme: $controlLabel", "Export Project (.zip)",
             (if (state.showProfiler) "Hide" else "Show") + " Profiler",
             (if (state.showGrid) "Hide" else "Show") + " Grid",
@@ -592,6 +635,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
             val t = item.title.toString()
             when {
                 t == "Save Scene" -> saveScene()
+                t == "AI Game Builder" -> openAiBuilder()
                 t == "Scenes…" -> scenesDialog()
                 t.startsWith("Build & Run") -> { saveScene(silent = true); startActivity(Intent(this, PlayerActivity::class.java).putExtra("project", project.name)) }
                 t == "Build APK…" -> { saveScene(silent = true); startActivity(Intent(this, BuildActivity::class.java).putExtra("project", project.name)) }
@@ -707,6 +751,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
     private fun openScene(name: String) {
         val s = project.loadScene(name)
         synchronized(engine.lock) { engine.replaceScene(s) }
+        openedSceneSave = project.sceneFile(name).takeIf { it.isFile }?.readText()
         history.clear(); history.dirty = false
         state.selectedId = -1
         refreshHierarchy(); inspector.rebuild(); updateTitle()
@@ -763,7 +808,6 @@ class EditorActivity : AppCompatActivity(), EditorHost {
             AssetKind.ANIMATION -> { pm.menu.add("Edit"); if (sel != null) pm.menu.add("Play on ${sel.name}") }
             AssetKind.MODEL -> { pm.menu.add("Create 3D Model Object"); if (sel != null) pm.menu.add("Use model on ${sel.name}") }
             null -> {}
-                    else -> {}
         }
         pm.menu.add("Delete")
         pm.setOnMenuItemClickListener { item ->

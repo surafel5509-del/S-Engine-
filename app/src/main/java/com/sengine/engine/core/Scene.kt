@@ -5,6 +5,8 @@ import org.json.JSONObject
 
 class Scene(var name: String) {
     val objects = mutableListOf<GameObject>()
+    /** Scene-level JSON keys this build does not know. Kept verbatim and written back on save. */
+    var unknownFields = JSONObject()
     var gravityX = 0f
     var gravityY = -9.81f
     var gravityZ = 0f
@@ -96,6 +98,18 @@ class Scene(var name: String) {
 }
 
 object SceneSerializer {
+    /** Keys this build reads for an object. Any other key is preserved as unknown data. */
+    private val OBJECT_KEYS = setOf(
+        "id", "name", "tag", "active", "order", "x", "y", "rotation", "scaleX", "scaleY",
+        "z", "rotX", "rotY", "scaleZ", "parent", "components",
+    )
+
+    /** Keys this build reads for a scene. Any other key is preserved as unknown data. */
+    private val SCENE_KEYS = setOf(
+        "name", "gravityX", "gravityY", "gravityZ", "gravity3D", "ambient", "fogColor",
+        "fogStart", "fogEnd", "fog", "nextId", "objects",
+    )
+
     fun objectToJson(go: GameObject): JSONObject {
         val o = JSONObject()
         o.put("id", go.id)
@@ -113,7 +127,9 @@ object SceneSerializer {
         go.parent?.let { o.put("parent", it.id) }
         val comps = JSONArray()
         for (c in go.components) comps.put(c.toJson())
+        for (raw in go.unknownComponents) comps.put(JSONObject(raw.toString()))
         o.put("components", comps)
+        for (k in go.unknownFields.keys()) if (!o.has(k)) o.put(k, go.unknownFields.get(k))
         return o
     }
 
@@ -132,10 +148,18 @@ object SceneSerializer {
         go.rotY = o.optDouble("rotY", 0.0).toFloat()
         go.scaleZ = o.optDouble("scaleZ", 1.0).toFloat()
         go.components.clear()
+        go.unknownComponents.clear()
+        val extra = JSONObject()
+        for (k in o.keys()) if (k !in OBJECT_KEYS) extra.put(k, o.get(k))
+        go.unknownFields = extra
         val comps = o.optJSONArray("components") ?: JSONArray()
         for (i in 0 until comps.length()) {
             val cj = comps.getJSONObject(i)
-            val c = ComponentRegistry.create(cj.optString("type")) ?: continue
+            val c = ComponentRegistry.create(cj.optString("type"))
+            if (c == null) {
+                go.unknownComponents.add(JSONObject(cj.toString()))
+                continue
+            }
             c.fromJson(cj)
             go.add(c)
         }
@@ -156,11 +180,15 @@ object SceneSerializer {
         val arr = JSONArray()
         for (go in scene.objects) arr.put(objectToJson(go))
         o.put("objects", arr)
+        for (k in scene.unknownFields.keys()) if (!o.has(k)) o.put(k, scene.unknownFields.get(k))
         return o
     }
 
     fun fromJson(o: JSONObject): Scene {
         val s = Scene(o.optString("name", "Main"))
+        val extra = JSONObject()
+        for (k in o.keys()) if (k !in SCENE_KEYS) extra.put(k, o.get(k))
+        s.unknownFields = extra
         s.gravityX = o.optDouble("gravityX", 0.0).toFloat()
         s.gravityY = o.optDouble("gravityY", -9.81).toFloat()
         s.gravityZ = o.optDouble("gravityZ", 0.0).toFloat()

@@ -2,6 +2,7 @@ package com.sengine.engine.render
 
 import android.opengl.GLES20
 import android.opengl.GLSurfaceView
+import android.util.Log
 import com.sengine.engine.Engine
 import com.sengine.engine.core.Camera2D
 import com.sengine.engine.core.Camera3D
@@ -15,6 +16,15 @@ import com.sengine.engine.core.SpriteRenderer
 import com.sengine.engine.core.TextRenderer
 import com.sengine.engine.math.Affine
 import com.sengine.engine.math.Mat4
+import com.sengine.engine.platform.android.GlInfo
+import com.sengine.engine.platform.android.GlSurface
+import com.sengine.engine.platform.android.GraphicsStatus
+import com.sengine.engine.render.api.GraphicsBackend
+import com.sengine.engine.render.api.GraphicsBackendSelector
+import com.sengine.engine.render.api.GraphicsInitException
+import com.sengine.engine.render.api.ShaderSourceSet
+import com.sengine.engine.render.gles2.Gles2Shaders
+import com.sengine.engine.render.gles3.Gles3Shaders
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.abs
@@ -32,7 +42,7 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
     private val r3 = Renderer3D()
     private val shaders = ShaderLibrary(engine.project) { engine.log(2, it) }
     private val post = PostProcessor()
-    private val textures = TextureCache(engine.project)
+    private val textures = TextureCache(engine.project).also { cache -> cache.onLog = { lvl, msg -> engine.log(lvl, msg) } }
     private val gameView3D = View3D()
     private val shakeView = View2D()
     private val uiView = View2D()
@@ -44,17 +54,81 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
     private val m4 = FloatArray(16)
     private val m4b = FloatArray(16)
     private val rnd = java.util.Random()
+    /** True when the last context could not start the renderer; frames then show an error colour only. */
+    private var initFailed = false
+    /** Number of GL contexts this renderer has been given (1 on first start, +1 per recreation). */
+    private var contextCount = 0
+    private var surfaceW = -1
+    private var surfaceH = -1
 
+    /**
+     * Runs on the GL thread every time a context is created (first start, resume, or after the
+     * driver dropped the context). All GPU objects from a previous context are abandoned here and
+     * rebuilt, so no handle from an old context is ever reused.
+     */
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
-        shaders.init()
-        r.init(shaders)
-        r3.init(shaders)
-        post.init()
-        textures.clear()
         lastNs = System.nanoTime()
+        initFailed = false
+        contextCount++
+        surfaceW = -1; surfaceH = -1
+        var description = ""
+        try {
+            val caps = GlInfo.query()
+            val selected = GraphicsBackendSelector.select(caps)
+            description = caps.describe(selected)
+            if (selected == null) {
+                throw GraphicsInitException("Unsupported OpenGL context. S Engine needs OpenGL ES 2.0 or 3.0. $description")
+            }
+            // Report the context that was really created, from the driver's own strings.
+            report("GL context #$contextCount: $description", 0)
+            // ES 3 context: prefer the ES 3 shader set. If it fails to build on this driver, fall back to the
+            // ES 2 (GLSL ES 1.00) set on the same context; the draw calls are identical, only the shaders differ.
+            val candidates = if (selected == GraphicsBackend.GLES30) {
+                listOf(GraphicsBackend.GLES30 to Gles3Shaders, GraphicsBackend.GLES20 to Gles2Shaders)
+            } else {
+                listOf(GraphicsBackend.GLES20 to Gles2Shaders)
+            }
+            var active: Pair<GraphicsBackend, ShaderSourceSet>? = null
+            var lastError: GraphicsInitException? = null
+            for ((backend, sources) in candidates) {
+                try {
+                    shaders.init(sources)
+                    r.init(shaders, sources)
+                    r3.init(shaders, sources)
+                    active = backend to sources
+                    break
+                } catch (e: GraphicsInitException) {
+                    lastError = e
+                    report("${backend.label} shaders could not be built: ${e.message}", 2)
+                }
+            }
+            val (activeBackend, activeSources) = active ?: throw (lastError ?: GraphicsInitException("No shader set could be built"))
+            post.init()
+            textures.clear()
+            val shaderNote = if (activeBackend == selected) "" else " | fell back to ${activeBackend.label} shaders"
+            GraphicsStatus.succeeded(activeBackend, description + " | shader dialect: ${activeSources.dialect.name}" + shaderNote)
+            report("Renderer ready (context #$contextCount): ${activeBackend.label}, shader dialect ${activeSources.dialect.name}$shaderNote", 0)
+            val errors = GL.drainErrors()
+            if (errors.isNotEmpty()) {
+                report("GL errors after renderer init: " + errors.joinToString { "0x" + Integer.toHexString(it) }, 2)
+            }
+        } catch (e: Throwable) {
+            initFailed = true
+            GraphicsStatus.failed(e.message ?: e.javaClass.simpleName, description)
+            report("Graphics init failed (context #$contextCount): ${e.message ?: e.javaClass.simpleName}", 2)
+        }
+    }
+
+    private fun report(message: String, level: Int) {
+        if (level >= 2) Log.e(GlSurface.TAG, message) else Log.i(GlSurface.TAG, message)
+        engine.log(level, message)
     }
 
     override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
+        if (width != surfaceW || height != surfaceH) {
+            surfaceW = width; surfaceH = height
+            report("Surface ${width}x${height} (context #$contextCount)", 0)
+        }
         this.width = width; this.height = height
         GLES20.glViewport(0, 0, width, height)
         engine.gameView.widthPx = width; engine.gameView.heightPx = height
@@ -64,12 +138,18 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
     }
 
     override fun onDrawFrame(gl: GL10?) {
+        if (initFailed) {
+            GLES20.glClearColor(0.35f, 0f, 0f, 1f)
+            GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT)
+            return
+        }
         val now = System.nanoTime()
         val dt = ((now - lastNs) / 1e9f).coerceIn(0f, 0.1f)
         lastNs = now
         synchronized(engine.lock) {
             engine.tick(dt)
             val t0 = System.nanoTime()
+            textures.beginFrame()
             r.drawCalls = 0; r3.drawCalls = 0
             val time = engine.time.toFloat()
             r.time = time; r3.time = time
@@ -94,6 +174,7 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
 
             if (post.active && postProg != null) r.drawCalls += post.end(postProg, time, intensity)
             engine.drawCalls = r.drawCalls + r3.drawCalls
+            engine.textureBytes = textures.usedBytes
             engine.renderMs = (System.nanoTime() - t0) / 1e6f
         }
     }
@@ -126,11 +207,7 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
         if (editing) drawEditorOverlay(view, editor!!)
     }
 
-    private fun sortedObjects(): List<GameObject> =
-        engine.scene.objects.withIndex()
-            .filter { it.value.isActiveInHierarchy() }
-            .sortedWith(compareBy({ it.value.order }, { it.index }))
-            .map { it.value }
+    private fun sortedObjects(): List<GameObject> = Draw2DRules.drawOrder(engine.scene.objects)
 
     private fun isScreenSpace(go: GameObject): Boolean =
         go.get<SpriteRenderer>()?.screenSpace == true || go.get<TextRenderer>()?.screenSpace == true
@@ -143,8 +220,8 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
             val tex = if (texName.isNotBlank()) textures.image(texName) else null
             val prog = if (sr.shader.isNotBlank()) shaders.sprite(sr.shader) else null
             val shape = if (tex != null) 0 else sr.shape
-            val pivotX = 0.5f - sr.pivotX
-            val pivotY = 0.5f - sr.pivotY
+            val pivotX = Draw2DRules.pivotOffset(sr.pivotX)
+            val pivotY = Draw2DRules.pivotOffset(sr.pivotY)
             if (m3 != null) {
                 val spriteMatrix = if (pivotX == 0f && pivotY == 0f) m3 else {
                     Mat4.trs(m4b, pivotX, pivotY, 0f, 0f, 0f, 0f, 1f, 1f, 1f)
@@ -163,10 +240,9 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
         go.get<TextRenderer>()?.let { tr ->
             if (tr.text.isNotEmpty()) {
                 val tex = textures.text(tr.text, tr.bold, tr.align)
-                val lines = tr.text.count { it == '\n' } + 1
-                val hh = tr.size * lines
-                val ww = hh * tex.w / tex.h
-                val ox = when (tr.align) { 0 -> ww / 2; 2 -> -ww / 2; else -> 0f }
+                val hh = Draw2DRules.textHeight(tr.size, Draw2DRules.textLineCount(tr.text))
+                val ww = Draw2DRules.textWidth(hh, tex.w.toFloat(), tex.h.toFloat())
+                val ox = Draw2DRules.textOriginX(tr.align, ww)
                 if (m3 != null) {
                     Mat4.trs(m4b, ox, 0f, 0f, 0f, 0f, 0f, ww, hh, 1f)
                     Mat4.mul(m4, m3, m4b)
@@ -186,10 +262,10 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
         val tex = if (pe.texture.isNotBlank()) textures.image(pe.texture) else null
         if (pe.additive) GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE)
         for (p in pe.particles) {
-            val t = (p.age / p.life).coerceIn(0f, 1f)
-            val size = (pe.startSize + (pe.endSize - pe.startSize) * t) * p.sizeScale
+            val t = Draw2DRules.particleT(p.age, p.life)
+            val size = Draw2DRules.particleSize(pe.startSize, pe.endSize, t, p.sizeScale)
             if (size <= 0f) continue
-            val c = lerpColor(pe.startColor, pe.endColor, t)
+            val c = Draw2DRules.lerpColor(pe.startColor, pe.endColor, t)
             if (z != null) {
                 Mat4.trs(m4, p.x, p.y, z, 0f, 0f, p.rotation, size, size, size)
                 r.quadModel(m4, c, if (tex != null) 0 else 1, tex, 100f)
@@ -199,11 +275,6 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
             }
         }
         if (pe.additive) GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-    }
-
-    private fun lerpColor(a: Int, b: Int, t: Float): Int {
-        fun ch(s: Int) = (((a shr s) and 0xFF) + ((((b shr s) and 0xFF) - ((a shr s) and 0xFF)) * t)).toInt() and 0xFF
-        return (ch(24) shl 24) or (ch(16) shl 16) or (ch(8) shl 8) or ch(0)
     }
 
     // ------------------------------------------------------------------ Screen-space UI

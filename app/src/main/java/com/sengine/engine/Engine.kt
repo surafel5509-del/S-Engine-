@@ -23,7 +23,13 @@ import kotlin.random.Random
  * The runtime core. All scene mutation happens while holding [lock];
  * simulation runs on the GL thread via [tick].
  */
-class Engine(val project: Project, initialScene: Scene) {
+class Engine(
+    val project: Project,
+    initialScene: Scene,
+    internal val scriptStorageProject: Project = project,
+    audioEnabled: Boolean = true,
+    scriptsEnabled: Boolean = true,
+) {
 
     enum class Mode { EDIT, PLAY, PAUSED }
 
@@ -43,19 +49,9 @@ class Engine(val project: Project, initialScene: Scene) {
     val physics = PhysicsWorld()
     val physics3D = com.sengine.engine.physics.PhysicsWorld3D()
     val animation = com.sengine.engine.anim.AnimationSystem(project)
-    val scripts = ScriptSystem(this)
-    val audio = AudioSystem(project)
+    val scripts = ScriptSystem(this, scriptsEnabled)
+    val audio = AudioSystem(project, audioEnabled)
     val gameView = View2D()
-    val tweens = com.sengine.engine.script.TweenSystem()
-    val objectPools = HashMap<String, com.sengine.engine.script.ObjectPool>()
-    val cameraManager = com.sengine.engine.camera.CameraManager()
-    val light2DManager = com.sengine.engine.lighting2d.Light2DManager()
-    val prefabLibrary = com.sengine.engine.prefab.PrefabLibrary()
-    val sceneManager = com.sengine.engine.scenemanager.SceneManager(project)
-    val saveManager = com.sengine.engine.save.SaveManager()
-    val localization = com.sengine.engine.localization.LocalizationManager()
-    val inventory = com.sengine.engine.inventory.Inventory()
-    val ecsWorld = com.sengine.engine.ecs.EcsWorld()
 
     var time = 0.0; private set
     var frame = 0L; private set
@@ -65,6 +61,8 @@ class Engine(val project: Project, initialScene: Scene) {
     @Volatile var physicsMs = 0f
     @Volatile var renderMs = 0f
     @Volatile var drawCalls = 0
+    /** Bytes of GPU texture memory held by the renderer's texture cache (see TextureBudget). */
+    @Volatile var textureBytes = 0L
     private var fpsAcc = 0f
     private var fpsFrames = 0
 
@@ -199,11 +197,6 @@ class Engine(val project: Project, initialScene: Scene) {
         updateGameView()
         updateParticles(dt)
         updateAnimators(dt, true)
-        tweens.update(dt)
-        com.sengine.engine.script.ScriptDebug.update(dt)
-        com.sengine.engine.script.EventBus.flush()
-        light2DManager.update(dt)
-        sceneManager.updateTransition(dt)
         decayShake(dt)
 
         val load = pendingSceneLoad

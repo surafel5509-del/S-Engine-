@@ -1,52 +1,63 @@
 package com.sengine.engine.render
 
 import android.opengl.GLES20
-import android.util.Log
+import com.sengine.engine.render.api.GraphicsInitException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.FloatBuffer
 
+/** Small GL helpers shared by the renderers. Every method must be called on the GL thread. */
 object GL {
-    /** Compiles and links; returns program id (0 on failure) and the error log. */
+    /**
+     * Compiles and links. Returns (program id, null) on success, or (0, "<stage>: <driver log>") on failure
+     * where stage is "vertex", "fragment" or "link". Never returns a program id for a failed link.
+     */
     fun tryCompile(vs: String, fs: String): Pair<Int, String?> {
+        val st = IntArray(1)
         val v = GLES20.glCreateShader(GLES20.GL_VERTEX_SHADER)
         GLES20.glShaderSource(v, vs); GLES20.glCompileShader(v)
-        val st = IntArray(1)
         GLES20.glGetShaderiv(v, GLES20.GL_COMPILE_STATUS, st, 0)
-        if (st[0] == 0) { val e = GLES20.glGetShaderInfoLog(v); GLES20.glDeleteShader(v); return 0 to "vertex: $e" }
+        if (st[0] == 0) {
+            val e = GLES20.glGetShaderInfoLog(v)
+            GLES20.glDeleteShader(v)
+            return 0 to "vertex: $e"
+        }
         val f = GLES20.glCreateShader(GLES20.GL_FRAGMENT_SHADER)
         GLES20.glShaderSource(f, fs); GLES20.glCompileShader(f)
         GLES20.glGetShaderiv(f, GLES20.GL_COMPILE_STATUS, st, 0)
-        if (st[0] == 0) { val e = GLES20.glGetShaderInfoLog(f); GLES20.glDeleteShader(v); GLES20.glDeleteShader(f); return 0 to e }
+        if (st[0] == 0) {
+            val e = GLES20.glGetShaderInfoLog(f)
+            GLES20.glDeleteShader(v); GLES20.glDeleteShader(f)
+            return 0 to "fragment: $e"
+        }
         val p = GLES20.glCreateProgram()
         GLES20.glAttachShader(p, v); GLES20.glAttachShader(p, f); GLES20.glLinkProgram(p)
         GLES20.glGetProgramiv(p, GLES20.GL_LINK_STATUS, st, 0)
         GLES20.glDeleteShader(v); GLES20.glDeleteShader(f)
-        if (st[0] == 0) { val e = GLES20.glGetProgramInfoLog(p); GLES20.glDeleteProgram(p); return 0 to "link: $e" }
+        if (st[0] == 0) {
+            val e = GLES20.glGetProgramInfoLog(p)
+            GLES20.glDeleteProgram(p)
+            return 0 to "link: $e"
+        }
         return p to null
     }
 
-    fun compile(vs: String, fs: String): Int {
-        val v = shader(GLES20.GL_VERTEX_SHADER, vs)
-        val f = shader(GLES20.GL_FRAGMENT_SHADER, fs)
-        val p = GLES20.glCreateProgram()
-        GLES20.glAttachShader(p, v)
-        GLES20.glAttachShader(p, f)
-        GLES20.glLinkProgram(p)
-        val st = IntArray(1)
-        GLES20.glGetProgramiv(p, GLES20.GL_LINK_STATUS, st, 0)
-        if (st[0] == 0) Log.e("SEngine", "Link error: " + GLES20.glGetProgramInfoLog(p))
-        return p
+    /** Built-in programs must always build. Throws [GraphicsInitException] with the driver log otherwise. */
+    fun compileOrThrow(name: String, vs: String, fs: String): Int {
+        val (program, err) = tryCompile(vs, fs)
+        if (err != null) throw GraphicsInitException("Built-in shader '$name' failed: ${err.trim()}")
+        return program
     }
 
-    private fun shader(type: Int, src: String): Int {
-        val s = GLES20.glCreateShader(type)
-        GLES20.glShaderSource(s, src)
-        GLES20.glCompileShader(s)
-        val st = IntArray(1)
-        GLES20.glGetShaderiv(s, GLES20.GL_COMPILE_STATUS, st, 0)
-        if (st[0] == 0) Log.e("SEngine", "Shader error: " + GLES20.glGetShaderInfoLog(s))
-        return s
+    /** Returns the GL error codes raised since the last call (empty when none). Used for init diagnostics. */
+    fun drainErrors(): List<Int> {
+        val out = ArrayList<Int>(2)
+        while (out.size < 8) {
+            val e = GLES20.glGetError()
+            if (e == GLES20.GL_NO_ERROR) break
+            out.add(e)
+        }
+        return out
     }
 
     fun floatBuffer(n: Int): FloatBuffer =

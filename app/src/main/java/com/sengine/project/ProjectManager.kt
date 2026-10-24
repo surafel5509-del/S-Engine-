@@ -13,9 +13,40 @@ object ProjectManager {
 
     fun list(ctx: Context): List<Project> =
         (root(ctx).listFiles() ?: emptyArray())
-            .filter { it.isDirectory }
+            .filter { it.isDirectory && !it.name.startsWith(".ai-") }
             .map { Project(it) }
             .sortedByDescending { it.dir.lastModified() }
+
+    /**
+     * Build a generated project in an app-private staging directory, validate/customize it, and only
+     * then publish it under its final name. Existing projects are never overwritten.
+     */
+    fun createGenerated(ctx: Context, name: String, template: Templates.Template, finalize: (Project) -> Unit): Project {
+        val safeName = sanitize(name).ifBlank { throw IllegalArgumentException("Invalid project name") }
+        val target = File(root(ctx), safeName)
+        if (target.exists()) throw IllegalArgumentException("A project named '$safeName' already exists")
+        val stage = File(root(ctx), ".ai-stage-${java.util.UUID.randomUUID()}")
+        var published = false
+        try {
+            val staged = Project(stage)
+            staged.saveMeta()
+            template.build(staged)
+            staged.saveMeta()
+            finalize(staged)
+            staged.saveMeta()
+            try {
+                java.nio.file.Files.move(stage.toPath(), target.toPath())
+                published = true
+            } catch (e: java.nio.file.FileAlreadyExistsException) {
+                throw IllegalArgumentException("A project named '$safeName' was created while this build was running", e)
+            }
+            return Project(target).also { it.saveMeta() }
+        } catch (e: Exception) {
+            if (stage.exists()) stage.deleteRecursively()
+            if (published && target.exists()) target.deleteRecursively()
+            throw e
+        }
+    }
 
     fun open(ctx: Context, name: String) = Project(File(root(ctx), name))
 

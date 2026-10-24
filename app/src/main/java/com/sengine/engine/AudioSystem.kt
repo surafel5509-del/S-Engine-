@@ -7,13 +7,14 @@ import android.media.ToneGenerator
 import com.sengine.engine.core.AssetKind
 import com.sengine.project.Project
 
-class AudioSystem(private val project: Project) {
+class AudioSystem(private val project: Project, private val enabled: Boolean = true) {
     private var pool: SoundPool? = null
     private val ids = HashMap<String, Int>()
     private val streams = ArrayList<Int>()
     private var tone: ToneGenerator? = null
 
     fun start() {
+        if (!enabled) return
         stop()
         try { createPool() } catch (_: Throwable) { pool = null }
     }
@@ -34,6 +35,7 @@ class AudioSystem(private val project: Project) {
     }
 
     fun play(name: String, volume: Float = 1f, loop: Boolean = false): Int {
+        if (!enabled) return 0
         val p = pool ?: return 0
         val id = ids[name] ?: return 0
         val s = p.play(id, volume, volume, 1, if (loop) -1 else 0, 1f)
@@ -42,6 +44,7 @@ class AudioSystem(private val project: Project) {
     }
 
     fun beep(durationMs: Int = 80) {
+        if (!enabled) return
         try {
             if (tone == null) tone = ToneGenerator(AudioManager.STREAM_MUSIC, 60)
             tone?.startTone(ToneGenerator.TONE_PROP_BEEP, durationMs)
@@ -50,12 +53,14 @@ class AudioSystem(private val project: Project) {
     }
 
     fun stopAll() {
+        if (!enabled) return
         val p = pool ?: return
         try { for (s in streams) p.stop(s) } catch (_: Throwable) {}
         streams.clear()
     }
 
     fun stop() {
+        if (!enabled) return
         stopAll()
         try { pool?.release() } catch (_: Throwable) {}
         pool = null

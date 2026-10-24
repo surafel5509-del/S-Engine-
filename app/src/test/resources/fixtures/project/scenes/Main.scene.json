@@ -1,0 +1,292 @@
+{
+  "name": "Main",
+  "gravityX": 0,
+  "gravityY": -9.81,
+  "gravityZ": 0,
+  "gravity3D": -9.81,
+  "ambient": "#FF4A505A",
+  "fogColor": "#FF9DB4CF",
+  "fogStart": 20,
+  "fogEnd": 80,
+  "fog": false,
+  "nextId": 9,
+  "objects": [
+    {
+      "id": 1,
+      "name": "Camera",
+      "tag": "MainCamera",
+      "active": true,
+      "order": 0,
+      "x": 0,
+      "y": 0,
+      "rotation": 0,
+      "scaleX": 1,
+      "scaleY": 1,
+      "components": [
+        {
+          "type": "Camera",
+          "enabled": true,
+          "Size": 6,
+          "Background": "#FF1B2533",
+          "Follow Target": "Player",
+          "Offset X": 0,
+          "Offset Y": 1,
+          "Follow Smoothing": 5,
+          "Post FX": "Custom Shader",
+          "FX Intensity": 0.8,
+          "FX Shader": "glow.glsl"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Player",
+      "tag": "Player",
+      "active": true,
+      "order": 1,
+      "x": -2,
+      "y": 0.5,
+      "rotation": 0,
+      "scaleX": 1,
+      "scaleY": 1,
+      "components": [
+        {
+          "type": "SpriteRenderer",
+          "enabled": true,
+          "Shape": "Square",
+          "Color": "#FFFFFFFF",
+          "Texture": "hero.png",
+          "Flip X": false,
+          "Flip Y": true,
+          "Pivot X": 0.5,
+          "Pivot Y": 0.5,
+          "Shader": "",
+          "Shader Param": 1,
+          "Screen Space UI": false
+        },
+        {
+          "type": "Rigidbody2D",
+          "enabled": true,
+          "Body Type": "Dynamic",
+          "Mass": 1,
+          "Gravity Scale": 1,
+          "Linear Drag": 0,
+          "Bounciness": 0,
+          "Friction": 0.4,
+          "Freeze Rotation": true,
+          "Angular Drag": 0.05,
+          "Inertia Scale": 1,
+          "Velocity X": 0,
+          "Velocity Y": 0,
+          "Angular Velocity": 0
+        },
+        {
+          "type": "Collider2D",
+          "enabled": true,
+          "Shape": "Box",
+          "Width": 1,
+          "Height": 1,
+          "Radius": 0.5,
+          "Offset X": 0,
+          "Offset Y": 0,
+          "Is Trigger": false
+        },
+        {
+          "type": "Script",
+          "enabled": true,
+          "Script": "player.js",
+          "Params": "{\"speed\":4}"
+        },
+        {
+          "type": "Animator",
+          "enabled": true,
+          "Clip": "hero_run.anim",
+          "Play On Start": true,
+          "Speed": 1
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Hat",
+      "parent": 2,
+      "tag": "Untagged",
+      "active": true,
+      "order": 2,
+      "x": 0,
+      "y": 0.7,
+      "rotation": 0,
+      "scaleX": 0.5,
+      "scaleY": 0.3,
+      "components": [
+        {
+          "type": "SpriteRenderer",
+          "enabled": true,
+          "Shape": "Triangle",
+          "Color": "#FFE04040",
+          "Texture": "",
+          "Flip X": false,
+          "Flip Y": false,
+          "Pivot X": 0.5,
+          "Pivot Y": 0,
+          "Shader": "",
+          "Shader Param": 1,
+          "Screen Space UI": false
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "Ground",
+      "tag": "Untagged",
+      "active": true,
+      "order": 0,
+      "x": 0,
+      "y": -3,
+      "rotation": 0,
+      "scaleX": 10,
+      "scaleY": 0.5,
+      "components": [
+        {
+          "type": "SpriteRenderer",
+          "enabled": true,
+          "Shape": "Square",
+          "Color": "#FF3A7D44",
+          "Texture": "",
+          "Flip X": false,
+          "Flip Y": false,
+          "Pivot X": 0.5,
+          "Pivot Y": 0.5,
+          "Shader": "wave.glsl",
+          "Shader Param": 0.5,
+          "Screen Space UI": false
+        },
+        {
+          "type": "Rigidbody2D",
+          "enabled": true,
+          "Body Type": "Static",
+          "Mass": 1,
+          "Gravity Scale": 1,
+          "Linear Drag": 0,
+          "Bounciness": 0,
+          "Friction": 0.6,
+          "Freeze Rotation": false,
+          "Angular Drag": 0.05,
+          "Inertia Scale": 1,
+          "Velocity X": 0,
+          "Velocity Y": 0,
+          "Angular Velocity": 0
+        },
+        {
+          "type": "Collider2D",
+          "enabled": true,
+          "Shape": "Box",
+          "Width": 1,
+          "Height": 1,
+          "Radius": 0.5,
+          "Offset X": 0,
+          "Offset Y": 0,
+          "Is Trigger": false
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "Sparks",
+      "tag": "Untagged",
+      "active": true,
+      "order": 3,
+      "x": 3,
+      "y": 1,
+      "rotation": 0,
+      "scaleX": 1,
+      "scaleY": 1,
+      "components": [
+        {
+          "type": "ParticleEmitter",
+          "enabled": true,
+          "Emitting": true,
+          "Rate": 20,
+          "Lifetime": 1.2,
+          "Speed": 2,
+          "Speed Variance": 0.3,
+          "Direction": 90,
+          "Spread": 45,
+          "Start Size": 0.2,
+          "End Size": 0.05,
+          "Size Variance": 0.1,
+          "Start Color": "#FFFFCC33",
+          "End Color": "#00FF3300",
+          "Gravity": -1,
+          "Particle Drag": 0.1,
+          "Start Rotation": 0,
+          "Rotation Speed": 45,
+          "Rotation Variance": 10,
+          "Spin Variance": 5,
+          "Max Particles": 200,
+          "Additive Blend": true,
+          "Texture": ""
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "Music",
+      "tag": "Untagged",
+      "active": true,
+      "order": 0,
+      "x": 0,
+      "y": 0,
+      "rotation": 0,
+      "scaleX": 1,
+      "scaleY": 1,
+      "components": [
+        {
+          "type": "AudioSource",
+          "enabled": true,
+          "Clip": "theme.ogg",
+          "Play On Start": true,
+          "Loop": true,
+          "Volume": 0.6
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "Score",
+      "tag": "Untagged",
+      "active": true,
+      "order": 0,
+      "x": -4,
+      "y": 3.5,
+      "rotation": 0,
+      "scaleX": 1,
+      "scaleY": 1,
+      "components": [
+        {
+          "type": "TextRenderer",
+          "enabled": true,
+          "Text": "Score: 0\nLevel 1",
+          "Screen Space UI": true,
+          "Size": 0.5,
+          "Color": "#FFFFFFFF",
+          "Align": "Left",
+          "Bold": true
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "Debug Marker",
+      "tag": "Untagged",
+      "active": false,
+      "order": 0,
+      "x": 0,
+      "y": 0,
+      "rotation": 45,
+      "scaleX": 1,
+      "scaleY": 1,
+      "components": []
+    }
+  ]
+}

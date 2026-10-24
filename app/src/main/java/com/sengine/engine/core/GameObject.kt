@@ -2,6 +2,7 @@ package com.sengine.engine.core
 
 import com.sengine.engine.math.Affine
 import com.sengine.engine.math.Mat4
+import org.json.JSONObject
 
 class GameObject(var id: Long, var name: String) {
     var tag: String = "Untagged"
@@ -22,6 +23,14 @@ class GameObject(var id: Long, var name: String) {
 
     var parent: GameObject? = null
     val components = mutableListOf<Component>()
+    /**
+     * Component entries whose type this build does not know. They are kept verbatim and written back
+     * on save, so a project made by a newer build is never reduced by an older one. They are not shown
+     * in the inspector.
+     */
+    val unknownComponents = mutableListOf<JSONObject>()
+    /** Object-level JSON keys this build does not know. Kept verbatim and written back on save. */
+    var unknownFields = JSONObject()
 
     @Volatile var destroyed = false
 

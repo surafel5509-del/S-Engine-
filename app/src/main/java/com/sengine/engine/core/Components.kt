@@ -16,72 +16,14 @@ object ComponentRegistry {
         "Light" to { Light() },
         "Rigidbody3D" to { Rigidbody3D() },
         "Collider3D" to { Collider3D() },
-        // ── UI System ──
-        "UICanvas" to { com.sengine.engine.ui.UICanvas() },
-        "RectTransform" to { com.sengine.engine.ui.RectTransform() },
-        "UIImage" to { com.sengine.engine.ui.UIImage() },
-        "UIText" to { com.sengine.engine.ui.UIText() },
-        "UIButton" to { com.sengine.engine.ui.UIButton() },
-        "UISlider" to { com.sengine.engine.ui.UISlider() },
-        "UIScrollRect" to { com.sengine.engine.ui.UIScrollRect() },
-        "UIPanel" to { com.sengine.engine.ui.UIPanel() },
-        "UIProgressBar" to { com.sengine.engine.ui.UIProgressBar() },
-        "UIToggle" to { com.sengine.engine.ui.UIToggle() },
-        "UIDropdown" to { com.sengine.engine.ui.UIDropdown() },
-        "UIInputField" to { com.sengine.engine.ui.UIInputField() },
-        "UILayoutGroup" to { com.sengine.engine.ui.UILayoutGroup() },
-        // ── Skeleton Animation ──
-        "SkeletonRenderer" to { com.sengine.engine.skeleton.SkeletonRenderer() },
-        "SkeletonAnimator" to { com.sengine.engine.skeleton.SkeletonAnimator() },
-        // ── Textures & Materials ──
-        "TextureImporter" to { com.sengine.engine.textures.TextureComponent() },
-        "Material" to { MaterialComponent() },
-        // ── Visual Scripting ──
-        "Blueprint" to { com.sengine.engine.blueprint.BlueprintComponent() },
-        // ── Pathfinding ──
-        "NavAgent" to { com.sengine.engine.pathfinding.NavAgent() },
-        "NavSurface" to { com.sengine.engine.pathfinding.NavSurface() },
-        // ── Prefab ──
-        "PrefabLink" to { com.sengine.engine.prefab.PrefabLink() },
-        // ── Advanced Particles ──
-        "ParticleSystemV2" to { com.sengine.engine.particlesv2.ParticleSystemV2() },
-        // ── Tilemap ──
-        "Tilemap" to { com.sengine.engine.tilemap.TilemapComponent() },
-        // ── Physics Joints ──
-        "SpringJoint2D" to { com.sengine.engine.joints.SpringJoint2D() },
-        "DistanceJoint2D" to { com.sengine.engine.joints.DistanceJoint2D() },
-        "HingeJoint2D" to { com.sengine.engine.joints.HingeJoint2D() },
-        "WheelJoint2D" to { com.sengine.engine.joints.WheelJoint2D() },
-        "TargetJoint2D" to { com.sengine.engine.joints.TargetJoint2D() },
-        "RopeJoint2D" to { com.sengine.engine.joints.RopeJoint2D() },
-        "RelativeJoint2D" to { com.sengine.engine.joints.RelativeJoint2D() },
-        // ── Camera System ──
-        "VirtualCamera" to { com.sengine.engine.camera.VirtualCamera() },
-        "CameraPath" to { com.sengine.engine.camera.CameraPath() },
-        // ── Audio Mixer ──
-        "AudioMixer" to { com.sengine.engine.audiomixer.AudioMixer() },
-        // ── 2D Lighting ──
-        "Light2D" to { com.sengine.engine.lighting2d.Light2D() },
-        "DayNightCycle" to { com.sengine.engine.lighting2d.DayNightCycle() },
     )
 
     val categories: LinkedHashMap<String, List<String>> = linkedMapOf(
         "Rendering 2D" to listOf("SpriteRenderer", "TextRenderer", "Animator", "ParticleEmitter", "Camera"),
         "Rendering 3D" to listOf("MeshRenderer", "Camera3D", "Light"),
-        "UI System" to listOf("UICanvas", "RectTransform", "UIImage", "UIText", "UIButton", "UISlider", "UIScrollRect", "UIPanel", "UIProgressBar", "UIToggle", "UIDropdown", "UIInputField", "UILayoutGroup"),
-        "Skeleton Animation" to listOf("SkeletonRenderer", "SkeletonAnimator"),
         "Physics 2D" to listOf("Rigidbody2D", "Collider2D"),
         "Physics 3D" to listOf("Rigidbody3D", "Collider3D"),
-        "Scripting & Audio" to listOf("Script", "AudioSource", "AudioMixer"),
-        "Textures & Materials" to listOf("TextureImporter", "Material"),
-        "Visual Scripting" to listOf("Blueprint"),
-        "Pathfinding & AI" to listOf("NavAgent", "NavSurface"),
-        "Prefabs" to listOf("PrefabLink"),
-        "Advanced Particles" to listOf("ParticleSystemV2"),
-        "Tilemap" to listOf("Tilemap"),
-        "Physics Joints" to listOf("SpringJoint2D", "DistanceJoint2D", "HingeJoint2D", "WheelJoint2D", "TargetJoint2D", "RopeJoint2D", "RelativeJoint2D"),
-        "Camera System" to listOf("VirtualCamera", "CameraPath"),
-        "2D Lighting" to listOf("Light2D", "DayNightCycle"),
+        "Scripting & Audio" to listOf("Script", "AudioSource"),
     )
 
     val POST_FX = listOf("None", "Grayscale", "Sepia", "Vignette", "CRT", "Pixelate", "Bloom", "Invert", "Chromatic", "Custom Shader")
@@ -520,41 +462,5 @@ class Collider3D : Component() {
         Prop.F("Center Y", { centerY }, { centerY = it }),
         Prop.F("Center Z", { centerZ }, { centerZ = it }),
         Prop.B("Is Trigger", { isTrigger }, { isTrigger = it }),
-    )
-}
-
-/** Material component for mesh renderers and UI. */
-class MaterialComponent : Component() {
-    override val type = "Material"
-    var material = ""
-    var mainColor = 0xFFFFFFFF.toInt()
-    var texture = ""
-    var shader = ""
-    var blendMode = 0 // 0=Opaque, 1=Alpha, 2=Additive, 3=Multiply
-    var culling = 0   // 0=Back, 1=Front, 2=Off
-    var zWrite = true
-    var renderQueue = 2000
-    var metallic = 0f
-    var roughness = 0.5f
-    var normalMap = ""
-    var emissiveColor = 0xFF000000.toInt()
-    var emissiveIntensity = 0f
-    var alphaCutoff = 0.5f
-
-    override fun props() = listOf(
-        Prop.Asset("Material", AssetKind.MATERIAL, { material }, { material = it }),
-        Prop.Color("Main Color", { mainColor }, { mainColor = it }),
-        Prop.Asset("Main Texture", AssetKind.TEXTURE, { texture }, { texture = it }),
-        Prop.Asset("Shader", AssetKind.SHADER, { shader }, { shader = it }),
-        Prop.Choice("Blend Mode", listOf("Opaque", "Alpha Blend", "Additive", "Multiply"), { blendMode }, { blendMode = it }),
-        Prop.Choice("Culling", listOf("Back", "Front", "Off"), { culling }, { culling = it }),
-        Prop.B("Z Write", { zWrite }, { zWrite = it }),
-        Prop.I("Render Queue", { renderQueue }, { renderQueue = it }),
-        Prop.F("Metallic", { metallic }, { metallic = it.coerceIn(0f, 1f) }, 0.05f),
-        Prop.F("Roughness", { roughness }, { roughness = it.coerceIn(0f, 1f) }, 0.05f),
-        Prop.Asset("Normal Map", AssetKind.TEXTURE, { normalMap }, { normalMap = it }),
-        Prop.Color("Emissive Color", { emissiveColor }, { emissiveColor = it }),
-        Prop.F("Emissive Intensity", { emissiveIntensity }, { emissiveIntensity = it.coerceAtLeast(0f) }, 0.1f),
-        Prop.F("Alpha Cutoff", { alphaCutoff }, { alphaCutoff = it.coerceIn(0f, 1f) }, 0.05f),
     )
 }

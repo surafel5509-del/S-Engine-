@@ -32,13 +32,11 @@ object C {
 fun Context.dp(v: Number): Int =
     TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v.toFloat(), resources.displayMetrics).toInt()
 
-fun round(color: Int, radius: Float, stroke: Int = 0, strokeColor: Int = 0): GradientDrawable {
-    val drawable = GradientDrawable()
-    drawable.setColor(color)
-    drawable.cornerRadius = radius
-    if (stroke > 0) drawable.setStroke(stroke, strokeColor)
-    return drawable
-}
+fun round(color: Int, radius: Float, stroke: Int = 0, strokeColor: Int = 0): GradientDrawable =
+    GradientDrawable().apply {
+        setColor(color); cornerRadius = radius
+        if (stroke > 0) setStroke(stroke, strokeColor)
+    }
 
 fun Context.label(text: String, size: Float = 13f, color: Int = C.TEXT, bold: Boolean = false): TextView =
     TextView(this).apply {

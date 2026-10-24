@@ -5,6 +5,7 @@ import com.sengine.engine.core.Light
 import com.sengine.engine.core.MeshRenderer
 import com.sengine.engine.core.Scene
 import com.sengine.engine.math.Mat4
+import com.sengine.engine.render.api.ShaderSourceSet
 import java.nio.FloatBuffer
 import kotlin.math.sqrt
 
@@ -34,9 +35,9 @@ class Renderer3D {
     var resW = 1f
     var resH = 1f
 
-    fun init(shaders: ShaderLibrary) {
+    fun init(shaders: ShaderLibrary, sources: ShaderSourceSet) {
         this.shaders = shaders
-        skyProg = GL.compile(SKY_VS, SKY_FS)
+        skyProg = GL.compileOrThrow("sky (${sources.dialect.name})", sources.skyVs, sources.skyFs)
         skyPos = GLES20.glGetAttribLocation(skyProg, "aPos")
         skyInv = GLES20.glGetUniformLocation(skyProg, "uInvVP")
         skyTop = GLES20.glGetUniformLocation(skyProg, "uTop")
@@ -163,29 +164,4 @@ class Renderer3D {
     }
 
     private fun isPot(n: Int) = n > 0 && (n and (n - 1)) == 0
-
-    companion object {
-        const val SKY_VS = """
-attribute vec2 aPos;
-varying vec2 vNdc;
-void main() { vNdc = aPos; gl_Position = vec4(aPos, 0.9999, 1.0); }
-"""
-        const val SKY_FS = """
-precision mediump float;
-varying vec2 vNdc;
-uniform mat4 uInvVP;
-uniform vec3 uTop;
-uniform vec3 uHorizon;
-uniform vec3 uGround;
-void main() {
-  vec4 a = uInvVP * vec4(vNdc, -1.0, 1.0);
-  vec4 b = uInvVP * vec4(vNdc, 1.0, 1.0);
-  vec3 d = normalize(b.xyz / b.w - a.xyz / a.w);
-  vec3 c;
-  if (d.y >= 0.0) c = mix(uHorizon, uTop, pow(d.y, 0.6));
-  else c = mix(uHorizon, uGround, clamp(-d.y * 4.0, 0.0, 1.0));
-  gl_FragColor = vec4(c, 1.0);
-}
-"""
-    }
 }
