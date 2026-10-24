@@ -25,6 +25,10 @@ interface ShaderSourceSet {
 
     val skyVs: String
     val skyFs: String
+
+    /** 2D light accumulation pass: draws the influence of one light into the light map. */
+    val lightVs: String
+    val lightFs: String
 }
 
 /** Turns raw driver compile/link logs into messages that point at the user's own code. */

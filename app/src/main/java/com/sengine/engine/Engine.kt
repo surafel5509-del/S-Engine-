@@ -7,6 +7,7 @@ import com.sengine.engine.core.GameObject
 import com.sengine.engine.core.ParticleEmitter
 import com.sengine.engine.core.Scene
 import com.sengine.engine.core.SceneSerializer
+import com.sengine.engine.camera.CameraRig
 import com.sengine.engine.physics.PhysicsWorld
 import com.sengine.engine.render.View2D
 import com.sengine.engine.script.ScriptSystem
@@ -251,13 +252,19 @@ class Engine(
         camGo.setWorldPosition3(w[12] + (gx - w[12]) * k, w[13] + (gy - w[13]) * k, w[14] + (gz - w[14]) * k)
     }
 
+    /** Adds screen shake. 0.2 = small hit, 0.6 = heavy impact, 1.0 = maximum. */
     fun shake(amount: Float) {
-        mainCamera()?.getAny<Camera2D>()?.let { it.shake = maxOf(it.shake, amount) }
+        mainCamera()?.let { camGo ->
+            camGo.getAny<Camera2D>()?.let { cam ->
+                cam.shake = maxOf(cam.shake, amount)
+                rigFor(camGo).addTrauma(amount.coerceIn(0f, 1f))
+            }
+        }
         mainCamera3D()?.getAny<com.sengine.engine.core.Camera3D>()?.let { it.shake = maxOf(it.shake, amount) }
     }
 
+    /** Legacy scalar shake decay for 3D cameras; the 2D rig decays its own trauma. */
     private fun decayShake(dt: Float) {
-        mainCamera()?.getAny<Camera2D>()?.let { it.shake = maxOf(0f, it.shake - dt * 2f * maxOf(1f, it.shake)) }
         mainCamera3D()?.getAny<com.sengine.engine.core.Camera3D>()?.let { it.shake = maxOf(0f, it.shake - dt * 2f * maxOf(1f, it.shake)) }
     }
 
@@ -268,19 +275,53 @@ class Engine(
         val cam = camGo.get<Camera2D>()!!
         if (cam.follow.isBlank()) return
         val t = scene.find(cam.follow) ?: return
-        camGo.setWorldPosition(t.world.tx + cam.offsetX, t.world.ty + cam.offsetY)
+        val rig = rigFor(camGo)
+        rig.reset(t.world.tx, t.world.ty, cam)
+        camGo.setWorldPosition(rig.x, rig.y)
+        targetLast[t.id] = floatArrayOf(t.world.tx, t.world.ty)
+        cam.shake = 0f
+        cam.shakeOffX = 0f
+        cam.shakeOffY = 0f
     }
+
+    private val cameraRigs = HashMap<Long, CameraRig>()
+    private val shakeOut = FloatArray(2)
+    private val targetLast = HashMap<Long, FloatArray>()
+
+    private fun rigFor(camGo: GameObject) = cameraRigs.getOrPut(camGo.id) { CameraRig() }
 
     private fun updateCameraFollow(dt: Float) {
         val camGo = mainCamera() ?: return
         val cam = camGo.get<Camera2D>()!!
-        if (cam.follow.isBlank()) return
+        val rig = rigFor(camGo)
+        if (cam.follow.isBlank()) {
+            rig.addTrauma(0f)
+            applyCameraShake(cam, rig)
+            return
+        }
         val t = scene.find(cam.follow) ?: return
-        val w = camGo.computeWorld()
-        val k = if (cam.smoothing <= 0f) 1f else (1f - exp(-cam.smoothing * dt))
-        val tx = t.world.tx + cam.offsetX
-        val ty = t.world.ty + cam.offsetY
-        camGo.setWorldPosition(w.tx + (tx - w.tx) * k, w.ty + (ty - w.ty) * k)
+        val rb = t.getAny<com.sengine.engine.core.Rigidbody2D>()
+        var vx = rb?.vx ?: 0f
+        var vy = rb?.vy ?: 0f
+        if (rb == null) {
+            // No rigidbody: derive the velocity from the movement since last frame.
+            val last = targetLast.getOrPut(t.id) { floatArrayOf(t.world.tx, t.world.ty) }
+            if (dt > 0f) {
+                vx = (t.world.tx - last[0]) / dt
+                vy = (t.world.ty - last[1]) / dt
+            }
+            last[0] = t.world.tx; last[1] = t.world.ty
+        }
+        val ppu = if (gameView.heightPx > 1) gameView.pixelsPerUnit else 0f
+        rig.step(t.world.tx, t.world.ty, vx, vy, dt, cam, ppu)
+        camGo.setWorldPosition(rig.x, rig.y)
+        applyCameraShake(cam, rig)
+    }
+
+    private fun applyCameraShake(cam: Camera2D, rig: CameraRig) {
+        rig.shakeOffset(cam.shakeAmplitude, shakeOut)
+        cam.shakeOffX = shakeOut[0]
+        cam.shakeOffY = shakeOut[1]
     }
 
     fun updateGameView() {
@@ -341,6 +382,7 @@ class Engine(
 
     fun release() {
         synchronized(lock) {
+            cameraRigs.clear()
             if (mode != Mode.EDIT) endScene()
             audio.stop()
         }

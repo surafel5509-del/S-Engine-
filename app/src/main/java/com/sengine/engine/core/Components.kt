@@ -16,12 +16,15 @@ object ComponentRegistry {
         "Light" to { Light() },
         "Rigidbody3D" to { Rigidbody3D() },
         "Collider3D" to { Collider3D() },
+        "Light2D" to { Light2D() },
+        "Joint2D" to { Joint2D() },
     )
 
     val categories: LinkedHashMap<String, List<String>> = linkedMapOf(
         "Rendering 2D" to listOf("SpriteRenderer", "TextRenderer", "Animator", "ParticleEmitter", "Camera"),
+        "Lighting 2D" to listOf("Light2D", "Camera"),
         "Rendering 3D" to listOf("MeshRenderer", "Camera3D", "Light"),
-        "Physics 2D" to listOf("Rigidbody2D", "Collider2D"),
+        "Physics 2D" to listOf("Rigidbody2D", "Collider2D", "Joint2D"),
         "Physics 3D" to listOf("Rigidbody3D", "Collider3D"),
         "Scripting & Audio" to listOf("Script", "AudioSource"),
     )
@@ -99,7 +102,34 @@ class Camera2D : Component() {
     var postFx = 0
     var postIntensity = 1f
     var postShader = ""
-    var shake = 0f // runtime
+    var shake = 0f // runtime (legacy scalar, still written by Engine.shake)
+    /** Noise based shake offsets written by the camera rig each frame. */
+    var shakeOffX = 0f
+    var shakeOffY = 0f
+
+    // ---- Professional camera rig (see engine/camera/CameraRig.kt) ----
+    /** Horizontal dead zone half-width in world units. The camera only moves once the target leaves it. */
+    var deadzoneX = 0f
+    /** Vertical dead zone half-height in world units. */
+    var deadzoneY = 0f
+    /** Separate vertical smoothing; 0 uses [smoothing]. Higher = snappier vertical follow. */
+    var smoothingY = 0f
+    /** Lead the target by its velocity multiplied by this many seconds (clamped by [lookAheadMax]). */
+    var lookAhead = 0f
+    var lookAheadMax = 2f
+    /** Extra world-space offset applied after smoothing (for cinematics). */
+    var verticalBias = 0f
+    /** Rounds the camera centre to whole screen pixels to stop 2D shimmer. */
+    var pixelSnap = false
+    /** Higher = shake fades faster. */
+    var shakeDecay = 2f
+    /** Shake strength in world units at full trauma. */
+    var shakeAmplitude = 0.35f
+    /** Restrict the view to a rectangle; all zero disables the bounds. */
+    var boundsMinX = 0f
+    var boundsMinY = 0f
+    var boundsMaxX = 0f
+    var boundsMaxY = 0f
 
     override fun props() = listOf(
         Prop.F("Size", { size }, { size = it.coerceAtLeast(0.1f) }),
@@ -108,12 +138,21 @@ class Camera2D : Component() {
         Prop.F("Offset X", { offsetX }, { offsetX = it }),
         Prop.F("Offset Y", { offsetY }, { offsetY = it }),
         Prop.F("Follow Smoothing", { smoothing }, { smoothing = it.coerceAtLeast(0f) }),
+        Prop.F("Vertical Smoothing", { smoothingY }, { smoothingY = it.coerceAtLeast(0f) }),
+        Prop.F("Dead Zone X", { deadzoneX }, { deadzoneX = it.coerceAtLeast(0f) }, 0.1f),
+        Prop.F("Dead Zone Y", { deadzoneY }, { deadzoneY = it.coerceAtLeast(0f) }, 0.1f),
+        Prop.F("Look Ahead", { lookAhead }, { lookAhead = it.coerceAtLeast(0f) }, 0.05f),
+        Prop.F("Look Ahead Max", { lookAheadMax }, { lookAheadMax = it.coerceAtLeast(0f) }, 0.1f),
+        Prop.F("Vertical Bias", { verticalBias }, { verticalBias = it }, 0.1f),
+        Prop.B("Pixel Snap", { pixelSnap }, { pixelSnap = it }),
+        Prop.F("Shake Decay", { shakeDecay }, { shakeDecay = it.coerceAtLeast(0.1f) }, 0.1f),
+        Prop.F("Shake Strength", { shakeAmplitude }, { shakeAmplitude = it.coerceAtLeast(0f) }, 0.05f),
         Prop.Choice("Post FX", ComponentRegistry.POST_FX, { postFx }, { postFx = it }),
         Prop.F("FX Intensity", { postIntensity }, { postIntensity = it.coerceIn(0f, 4f) }, 0.05f),
         Prop.Asset("FX Shader", AssetKind.SHADER, { postShader }, { postShader = it }),
     )
 
-    override fun resetRuntime() { shake = 0f }
+    override fun resetRuntime() { shake = 0f; shakeOffX = 0f; shakeOffY = 0f }
 }
 
 class Rigidbody2D : Component() {
@@ -164,23 +203,52 @@ class Rigidbody2D : Component() {
 
 class Collider2D : Component() {
     override val type = "Collider2D"
-    var shape = 0 // 0 Box, 1 Circle
+    /** 0 Box, 1 Circle, 2 Terrain Line (polyline), 3 Convex Polygon. */
+    var shape = 0
     var width = 1f
     var height = 1f
     var radius = 0.5f
     var offsetX = 0f
     var offsetY = 0f
     var isTrigger = false
+    /** Local-space points for Terrain Line / Convex Polygon: "x,y;x,y;..." (separators , ; and spaces). */
+    var points = ""
+    /** How deep a Terrain Line segment is extruded downwards, in local units. */
+    var thickness = 1f
 
     override fun props() = listOf(
-        Prop.Choice("Shape", listOf("Box", "Circle"), { shape }, { shape = it }),
+        Prop.Choice("Shape", SHAPES, { shape }, { shape = it }),
         Prop.F("Width", { width }, { width = it.coerceAtLeast(0.01f) }),
         Prop.F("Height", { height }, { height = it.coerceAtLeast(0.01f) }),
         Prop.F("Radius", { radius }, { radius = it.coerceAtLeast(0.01f) }),
         Prop.F("Offset X", { offsetX }, { offsetX = it }),
         Prop.F("Offset Y", { offsetY }, { offsetY = it }),
         Prop.B("Is Trigger", { isTrigger }, { isTrigger = it }),
+        Prop.S("Points", { points }, { points = it }, multiline = true),
+        Prop.F("Thickness", { thickness }, { thickness = it.coerceAtLeast(0.02f) }),
     )
+
+    /** Parses [points]; accepts "x,y;x,y" and any mix of ``,`` ``;`` and whitespace separators. */
+    fun parsePoints(): FloatArray {
+        if (points.isBlank()) return FloatArray(0)
+        val nums = points.replace(';', ',').replace('|', ',').split(',', ' ', '\n', '\t')
+            .mapNotNull { it.trim().toFloatOrNull() }
+        if (nums.size < 4) return FloatArray(0)
+        return nums.toFloatArray()
+    }
+
+    fun setPoints(list: List<Float>) {
+        points = list.chunked(2).joinToString(";") { "${fmtNum(it[0])},${fmtNum(it.getOrElse(1) { 0f })}" }
+    }
+
+    private fun fmtNum(v: Float): String {
+        val r = Math.round(v * 1000f) / 1000f
+        return if (r == Math.floor(r.toDouble()).toFloat()) r.toInt().toString() else r.toString()
+    }
+
+    companion object {
+        val SHAPES = listOf("Box", "Circle", "Terrain Line", "Convex Polygon")
+    }
 }
 
 class ScriptComponent : Component() {
@@ -296,6 +364,89 @@ class Animator : Component() {
 
     override fun resetRuntime() {
         current = clip; time = 0f; playing = playOnStart; frame = 0; finished = false
+    }
+}
+
+/**
+ * A 2D light. Lights are accumulated into an off-screen light map by the renderer and multiplied over
+ * the scene, so any number of sprites, particles and terrain quads are lit without touching their shaders.
+ */
+class Light2D : Component() {
+    override val type = "Light2D"
+    /** 0 Ambient (global), 1 Point, 2 Spot, 3 Directional (sun). */
+    var kind = 1
+    var color = 0xFFFFE3B0.toInt()
+    var intensity = 1f
+    var radius = 6f
+    /** Soft core radius; between 0 and [radius] the light is at full strength. */
+    var innerRadius = 0.5f
+    /** 0.2 = very soft edge, 4 = tight hot spot. */
+    var falloff = 1.2f
+    var direction = 90f
+    var spotAngle = 60f
+    /** Optional cookie texture projected into the light (assets folder). */
+    var cookie = ""
+    var cookieScale = 1f
+    /** Draw the light's influence in the editor viewport. */
+    var debugDraw = false
+
+    override fun props() = listOf(
+        Prop.Choice("Type", KINDS, { kind }, { kind = it }),
+        Prop.Color("Color", { color }, { color = it }),
+        Prop.F("Intensity", { intensity }, { intensity = it.coerceIn(0f, 8f) }, 0.05f),
+        Prop.F("Radius", { radius }, { radius = it.coerceAtLeast(0.01f) }, 0.25f),
+        Prop.F("Inner Radius", { innerRadius }, { innerRadius = it.coerceIn(0f, 100f) }, 0.1f),
+        Prop.F("Falloff", { falloff }, { falloff = it.coerceIn(0.05f, 8f) }, 0.05f),
+        Prop.F("Direction", { direction }, { direction = it }, 5f),
+        Prop.F("Spot Angle", { spotAngle }, { spotAngle = it.coerceIn(1f, 360f) }, 5f),
+        Prop.Asset("Cookie", AssetKind.TEXTURE, { cookie }, { cookie = it }),
+        Prop.F("Cookie Scale", { cookieScale }, { cookieScale = it.coerceIn(0.05f, 8f) }, 0.05f),
+        Prop.B("Debug Draw", { debugDraw }, { debugDraw = it }),
+    )
+
+    companion object {
+        val KINDS = listOf("Ambient", "Point", "Spot", "Directional")
+    }
+}
+
+/**
+ * Connects this object (body A) to [target] (body B).
+ * Hinge = pin, Wheel = suspension + motor (cars, bikes), Spring = soft distance, Distance = rigid rod.
+ */
+class Joint2D : Component() {
+    override val type = "Joint2D"
+    /** 0 Hinge, 1 Wheel, 2 Spring, 3 Distance. */
+    var kind = 0
+    var target = ""
+    var anchorX = 0f
+    var anchorY = 0f
+    var targetAnchorX = 0f
+    var targetAnchorY = 0f
+    /** Target relative angular velocity in radians/second (rad/s = RPM * 0.1047). */
+    var motorSpeed = 0f
+    var maxTorque = 0f
+    /** Spring/suspension stiffness in Hz. */
+    var frequency = 4f
+    var damping = 0.7f
+    /** 0 = rest length measured on the first step. */
+    var restLength = 0f
+
+    override fun props() = listOf(
+        Prop.Choice("Type", KINDS, { kind }, { kind = it }),
+        Prop.S("Target Object", { target }, { target = it }),
+        Prop.F("Anchor X", { anchorX }, { anchorX = it }, 0.05f),
+        Prop.F("Anchor Y", { anchorY }, { anchorY = it }, 0.05f),
+        Prop.F("Target Anchor X", { targetAnchorX }, { targetAnchorX = it }, 0.05f),
+        Prop.F("Target Anchor Y", { targetAnchorY }, { targetAnchorY = it }, 0.05f),
+        Prop.F("Motor Speed", { motorSpeed }, { motorSpeed = it }, 0.5f),
+        Prop.F("Max Torque", { maxTorque }, { maxTorque = it.coerceAtLeast(0f) }, 5f),
+        Prop.F("Frequency", { frequency }, { frequency = it.coerceAtLeast(0.1f) }, 0.5f),
+        Prop.F("Damping", { damping }, { damping = it.coerceIn(0f, 1f) }, 0.05f),
+        Prop.F("Rest Length", { restLength }, { restLength = it.coerceAtLeast(0f) }, 0.05f),
+    )
+
+    companion object {
+        val KINDS = listOf("Hinge", "Wheel", "Spring", "Distance")
     }
 }
 

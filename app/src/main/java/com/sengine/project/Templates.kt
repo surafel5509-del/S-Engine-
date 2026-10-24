@@ -19,7 +19,13 @@ import com.sengine.engine.core.TextRenderer
 object Templates {
     class Template(val name: String, val description: String, val build: (Project) -> Unit)
 
-    val all: List<Template> by lazy { listOf(empty, platformer, shooter, physics, demo3d, animated, blueprintDemo, HillClimbTemplate.template) }
+    val all: List<Template> by lazy {
+        listOf(empty, platformer, shooter, physics, demo3d, animated, blueprintDemo, HillClimbTemplate.template) +
+            ProTemplates.all.map { pro -> Template(pro.name, pro.description) { p -> pro.build(p) } }
+    }
+
+    /** Pro-edition presets: projects created from these open in the matching 2D / 3D viewport. */
+    val pro: List<ProTemplates.ProTemplate> get() = ProTemplates.all
 
     const val NEW_SHADER = """// S Engine effect shader (GLSL ES)
 // Available: uTime, uParam, uTex, uUseTex, uColor, uResolution

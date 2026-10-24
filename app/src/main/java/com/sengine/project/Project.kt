@@ -110,6 +110,75 @@ class Project(val dir: File) {
         assetsDir.mkdirs(); assetFile(n).writeText(text)
     }
 
+    /** Binary asset write (imported images, fonts, models, generated PNGs). */
+    fun writeAssetBytes(n: String, bytes: ByteArray) {
+        assetsDir.mkdirs()
+        assetFile(n).writeBytes(bytes)
+    }
+
+    fun readAssetBytes(n: String): ByteArray? = assetFile(n).takeIf { it.isFile }?.readBytes()
+
+    // ---------------------------------------------------------------- texture pipeline
+
+    private val textureSettingsFile = File(dir, "textures.json")
+    private var textureSettingsCache: TextureSettingsStore? = null
+
+    /** Import settings for every texture asset (filter, wrap, mipmaps, max size). */
+    fun textureSettings(): TextureSettingsStore {
+        textureSettingsCache?.let { return it }
+        val store = TextureSettingsStore()
+        if (textureSettingsFile.isFile) store.loadFromText(textureSettingsFile.readText())
+        textureSettingsCache = store
+        return store
+    }
+
+    fun saveTextureSettings() {
+        val store = textureSettingsCache ?: return
+        dir.mkdirs()
+        textureSettingsFile.writeText(store.saveText())
+    }
+
+    // ---------------------------------------------------------------- sprite studio documents
+
+    /** Editable `.sprite` documents created by Sprite Studio (not runtime assets). */
+    val spritesDir = File(dir, "sprites")
+
+    fun spriteFile(n: String) = File(spritesDir, if (n.endsWith(".sprite")) n else "$n.sprite")
+
+    fun listSprites(): List<String> =
+        (spritesDir.listFiles() ?: emptyArray())
+            .filter { it.isFile && it.name.endsWith(".sprite") }
+            .map { it.name.removeSuffix(".sprite") }
+            .sorted()
+
+    fun spriteExists(n: String) = spriteFile(n).isFile
+
+    fun saveSprite(doc: com.sengine.engine.sprite.SpriteDocument) {
+        spritesDir.mkdirs()
+        spriteFile(doc.name).writeText(doc.toJsonText())
+    }
+
+    fun loadSprite(n: String): com.sengine.engine.sprite.SpriteDocument? {
+        val f = spriteFile(n)
+        if (!f.isFile) return null
+        return try {
+            com.sengine.engine.sprite.SpriteDocument.fromJsonText(f.readText())
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun deleteSprite(n: String) = spriteFile(n).delete()
+
+    /** Unique sprite document name (`hero`, `hero_2`, ...). */
+    fun uniqueSpriteName(base: String): String {
+        val clean = base.trim().ifBlank { "Sprite" }
+        if (!spriteExists(clean)) return clean
+        var i = 2
+        while (spriteExists("${clean}_$i")) i++
+        return "${clean}_$i"
+    }
+
     fun uniqueAssetName(base: String): String {
         if (!assetFile(base).exists()) return base
         val stem = base.substringBeforeLast('.')

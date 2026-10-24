@@ -56,6 +56,10 @@ class TextureCache(private val project: Project, budgetBytes: Long = DEFAULT_BUD
         images.clear(); stamps.clear(); stampChecked.clear(); texts.clear(); budget.clear()
     }
 
+    /** Import settings for an asset (filtering, wrap, mipmaps, max size). */
+    fun settingsFor(name: String): com.sengine.project.TextureSettings =
+        project.textureSettings().get(name)
+
     fun image(name: String): Tex? {
         if (name.isBlank()) return null
         val key = IMG + name
@@ -73,8 +77,18 @@ class TextureCache(private val project: Project, budgetBytes: Long = DEFAULT_BUD
         }
         images[name]?.let { GLES20.glDeleteTextures(1, intArrayOf(it.id), 0) }
         budget.remove(key)
-        val bmp = try { BitmapFactory.decodeFile(f.absolutePath) } catch (_: Throwable) { null }
-        val tex = bmp?.let { uploadBudgeted(key, it, nearest = maxOf(it.width, it.height) <= 128) }
+        var bmp = try { BitmapFactory.decodeFile(f.absolutePath) } catch (_: Throwable) { null }
+        var tex: Tex? = null
+        if (bmp != null) {
+            val settings = settingsFor(name)
+            val (tw, th) = settings.targetSize(bmp.width, bmp.height).let { it[0] to it[1] }
+            if (tw != bmp.width || th != bmp.height) {
+                val scaled = Bitmap.createScaledBitmap(bmp, tw, th, !settings.pixelArt)
+                if (scaled !== bmp) bmp.recycle()
+                bmp = scaled
+            }
+            tex = uploadBudgeted(key, bmp, settings)
+        }
         bmp?.recycle()
         images[name] = tex
         stamps[name] = stamp
@@ -112,7 +126,12 @@ class TextureCache(private val project: Project, budgetBytes: Long = DEFAULT_BUD
     }
 
     /** Evicts what the budget requires, then uploads [bmp] and records it. */
-    private fun uploadBudgeted(key: String, bmp: Bitmap, nearest: Boolean): Tex {
+    private fun uploadBudgeted(key: String, bmp: Bitmap, nearest: Boolean): Tex =
+        uploadBudgeted(key, bmp, com.sengine.project.TextureSettings().also {
+            if (nearest) it.usePixelArt() else it.useSmooth()
+        })
+
+    private fun uploadBudgeted(key: String, bmp: Bitmap, settings: com.sengine.project.TextureSettings): Tex {
         val bytes = bmp.width.toLong() * bmp.height * 4
         val plan = budget.plan(bytes)
         for (victim in plan.victims) evict(victim)
@@ -120,7 +139,7 @@ class TextureCache(private val project: Project, budgetBytes: Long = DEFAULT_BUD
             onLog(1, "Texture cache over budget: ${budget.usedBytes / 1024} KB in use, budget " +
                 "${budget.maxBytes / 1024} KB, new texture ${bytes / 1024} KB. Textures used this frame are not evicted.")
         }
-        val tex = upload(bmp, nearest)
+        val tex = upload(bmp, settings)
         budget.add(key, bytes)
         return tex
     }
@@ -139,16 +158,36 @@ class TextureCache(private val project: Project, budgetBytes: Long = DEFAULT_BUD
         }
     }
 
-    private fun upload(bmp: Bitmap, nearest: Boolean): Tex {
+    private fun upload(bmp: Bitmap, settings: com.sengine.project.TextureSettings): Tex {
         val ids = IntArray(1)
         GLES20.glGenTextures(1, ids, 0)
         GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ids[0])
-        val filter = if (nearest) GLES20.GL_NEAREST else GLES20.GL_LINEAR
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, filter)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, filter)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, settings.glMinFilter())
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, settings.glMagFilter())
+        val wrap = settings.glWrap()
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, wrap)
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, wrap)
         GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bmp, 0)
+        if (settings.mipmaps) {
+            GLES20.glGenerateMipmap(GLES20.GL_TEXTURE_2D)
+            if (settings.anisotropic > 0) applyAnisotropy(settings.anisotropic)
+        }
         return Tex(ids[0], bmp.width, bmp.height)
+    }
+
+    private var maxAnisotropy: Float = -1f
+
+    /** Applies anisotropic filtering when the driver supports EXT_texture_filter_anisotropic. */
+    private fun applyAnisotropy(requested: Int) {
+        if (maxAnisotropy < 0f) {
+            val ext = try { GLES20.glGetString(GLES20.GL_EXTENSIONS) ?: "" } catch (_: Throwable) { "" }
+            maxAnisotropy = if (ext.contains("GL_EXT_texture_filter_anisotropic")) {
+                val v = FloatArray(1)
+                GLES20.glGetFloatv(0x84FF, v, 0)
+                if (v[0] > 1f) v[0] else 0f
+            } else 0f
+        }
+        if (maxAnisotropy <= 1f) return
+        GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, 0x84FE, requested.toFloat().coerceIn(1f, maxAnisotropy))
     }
 }
