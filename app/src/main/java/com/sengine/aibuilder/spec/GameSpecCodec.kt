@@ -139,6 +139,41 @@ object GameSpecCodec {
                     size = number(o, "size", 0.45f), color = o.optString("color", "#FFFFFFFF"),
                     order = optionalInt(o, "order") ?: 100,
                 )
+                "generate_pixel_sprite" -> GameOperation.GeneratePixelSprite(
+                    scene = scene,
+                    assetName = requiredString(o, "assetName"),
+                    width = optionalInt(o, "width") ?: -1,
+                    height = optionalInt(o, "height") ?: -1,
+                    palette = stringArray(o.optJSONArray("palette"), "palette", 16, 9),
+                    rows = stringArray(o.optJSONArray("rows"), "rows", 64, 64),
+                )
+                "generate_sound" -> GameOperation.GenerateSound(
+                    scene = scene,
+                    assetName = requiredString(o, "assetName"),
+                    waveform = requiredString(o, "waveform"),
+                    frequencyHz = number(o, "frequencyHz", Float.NaN),
+                    endFrequencyHz = number(o, "endFrequencyHz", Float.NaN),
+                    durationMs = optionalInt(o, "durationMs") ?: -1,
+                    volume = number(o, "volume", Float.NaN),
+                )
+                "generate_animation_clip" -> GameOperation.GenerateAnimationClip(
+                    scene = scene,
+                    assetName = requiredString(o, "assetName"),
+                    textureAsset = requiredString(o, "textureAsset"),
+                    columns = optionalInt(o, "columns") ?: -1,
+                    rows = optionalInt(o, "rows") ?: -1,
+                    frames = intArray(o.optJSONArray("frames"), "frames", 64),
+                    fps = number(o, "fps", Float.NaN),
+                    loop = o.optBoolean("loop", true),
+                    pivotX = number(o, "pivotX", 0.5f),
+                    pivotY = number(o, "pivotY", 0.5f),
+                )
+                "generate_shader_preset" -> GameOperation.GenerateShaderPreset(
+                    scene = scene, assetName = requiredString(o, "assetName"), preset = requiredString(o, "preset"),
+                )
+                "generate_blueprint_preset" -> GameOperation.GenerateBlueprintPreset(
+                    scene = scene, assetName = requiredString(o, "assetName"), preset = requiredString(o, "preset"),
+                )
                 else -> throw GameSpecParseException("operations[$index] uses unsupported type '$kind'")
             }
         } catch (e: GameSpecParseException) {
@@ -229,6 +264,18 @@ object GameSpecCodec {
         }
     }
 
+    private fun intArray(array: JSONArray?, field: String, maxItems: Int): List<Int> {
+        if (array == null) return emptyList()
+        if (array.length() > maxItems) throw GameSpecParseException("'$field' has too many entries")
+        return (0 until array.length()).map { i ->
+            val value = array.opt(i) as? Number ?: throw GameSpecParseException("'$field[$i]' must be an integer")
+            if (value.toDouble() % 1.0 != 0.0 || value.toDouble() !in Int.MIN_VALUE.toDouble()..Int.MAX_VALUE.toDouble()) {
+                throw GameSpecParseException("'$field[$i]' must be a 32-bit integer")
+            }
+            value.toInt()
+        }
+    }
+
     private fun operationToJson(operation: GameOperation): JSONObject = JSONObject().apply {
         put("scene", operation.scene)
         when (operation) {
@@ -271,6 +318,30 @@ object GameSpecCodec {
                 put("type", "add_hud_text"); put("name", operation.name); put("text", operation.text)
                 put("x", operation.x.toDouble()); put("y", operation.y.toDouble()); put("size", operation.size.toDouble())
                 put("color", operation.color); put("order", operation.order)
+            }
+            is GameOperation.GeneratePixelSprite -> {
+                put("type", "generate_pixel_sprite"); put("assetName", operation.assetName)
+                put("width", operation.width); put("height", operation.height)
+                put("palette", JSONArray().also { a -> operation.palette.forEach { a.put(it) } })
+                put("rows", JSONArray().also { a -> operation.rows.forEach { a.put(it) } })
+            }
+            is GameOperation.GenerateSound -> {
+                put("type", "generate_sound"); put("assetName", operation.assetName); put("waveform", operation.waveform)
+                put("frequencyHz", operation.frequencyHz.toDouble()); put("endFrequencyHz", operation.endFrequencyHz.toDouble())
+                put("durationMs", operation.durationMs); put("volume", operation.volume.toDouble())
+            }
+            is GameOperation.GenerateAnimationClip -> {
+                put("type", "generate_animation_clip"); put("assetName", operation.assetName)
+                put("textureAsset", operation.textureAsset); put("columns", operation.columns); put("rows", operation.rows)
+                put("frames", JSONArray().also { a -> operation.frames.forEach { a.put(it) } })
+                put("fps", operation.fps.toDouble()); put("loop", operation.loop)
+                put("pivotX", operation.pivotX.toDouble()); put("pivotY", operation.pivotY.toDouble())
+            }
+            is GameOperation.GenerateShaderPreset -> {
+                put("type", "generate_shader_preset"); put("assetName", operation.assetName); put("preset", operation.preset)
+            }
+            is GameOperation.GenerateBlueprintPreset -> {
+                put("type", "generate_blueprint_preset"); put("assetName", operation.assetName); put("preset", operation.preset)
             }
         }
     }

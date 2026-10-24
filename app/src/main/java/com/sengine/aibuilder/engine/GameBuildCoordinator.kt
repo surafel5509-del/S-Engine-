@@ -72,7 +72,16 @@ class GameBuildCoordinator(
             checkCancelled()
             val rollbackToken = if (applied.rollbackSnapshots.size == 1 && memory != null) {
                 val (scene, snapshot) = applied.rollbackSnapshots.entries.first()
-                try { memory.pushRollback(project.name, scene, snapshot) } catch (_: Exception) { null }
+                val rollbackData = if (applied.generatedAssets.isEmpty()) snapshot else JSONObject()
+                    .put("format", "sengine-ai-rollback-v1")
+                    .put("scene", JSONObject(snapshot))
+                    .put("assets", org.json.JSONArray().also { assets ->
+                        applied.generatedAssets.forEach { name ->
+                            val file = project.assetFile(name)
+                            if (file.isFile) assets.put(JSONObject().put("name", name).put("sha256", sha256(file.readBytes())))
+                        }
+                    }).toString()
+                try { memory.pushRollback(project.name, scene, rollbackData) } catch (_: Exception) { null }
             } else null
             return GameBuildOutcome(project, GameBuildReport(
                 projectName = project.name,
@@ -90,6 +99,7 @@ class GameBuildCoordinator(
             ))
         } catch (e: Exception) {
             restore(project, applied.rollbackSnapshots)
+            applied.generatedAssets.forEach { asset -> try { project.assetFile(asset).delete() } catch (_: Exception) { } }
             throw e
         }
     }
@@ -113,10 +123,36 @@ class GameBuildCoordinator(
             throw GameBuildException("Rollback target scene is missing or exceeds the 8 MB safety limit.")
         }
         val before = file.readText()
+        val rollbackDoc = try { JSONObject(snapshot) } catch (e: Exception) {
+            throw GameBuildException("Rollback snapshot is malformed.", e)
+        }
+        val isBundle = rollbackDoc.optString("format") == "sengine-ai-rollback-v1"
+        val sceneJson = if (isBundle) rollbackDoc.optJSONObject("scene")?.toString()
+            ?: throw GameBuildException("Rollback scene snapshot is missing.") else snapshot
+        val removableAssets = ArrayList<String>()
+        val assetRows = rollbackDoc.optJSONArray("assets")
+        if (isBundle && assetRows != null) for (i in 0 until assetRows.length()) {
+            val item = assetRows.optJSONObject(i) ?: continue
+            val name = item.optString("name")
+            val expectedHash = item.optString("sha256")
+            if (!com.sengine.aibuilder.spec.GameSpecValidator.isSafeAssetName(name) || expectedHash.isBlank()) continue
+            val root = project.assetsDir.canonicalFile
+            val assetFile = File(root, name).canonicalFile
+            if (assetFile.parentFile == root && assetFile.isFile && sha256(assetFile.readBytes()) == expectedHash) removableAssets += name
+        }
+        val beforeAssets = LinkedHashMap<String, ByteArray>()
         try {
             checkCancelled()
-            val old = SceneSerializer.fromJson(JSONObject(snapshot)).also { it.name = sceneName }
+            val old = SceneSerializer.fromJson(JSONObject(sceneJson)).also { it.name = sceneName }
             project.saveScene(old)
+            for (assetName in removableAssets) {
+                checkCancelled()
+                val assetFile = project.assetFile(assetName)
+                if (assetFile.isFile) {
+                    beforeAssets[assetName] = assetFile.readBytes()
+                    if (!assetFile.delete()) throw GameBuildException("Could not remove generated asset '$assetName' during rollback.")
+                }
+            }
             checkCancelled()
             val errors = GameSceneValidator.validate(project, project.loadScene(sceneName))
             if (errors.isNotEmpty()) throw GameBuildException("Rollback result failed validation:\n${errors.joinToString("\n")}")
@@ -124,12 +160,17 @@ class GameBuildCoordinator(
             if (!smoke.passed) throw GameBuildException("Restored scene did not pass the runtime startup smoke test:\n${smoke.errors.joinToString("\n")}")
             checkCancelled()
             rollbackStore.removeLatestRollback(project.name, sceneName, token)
-            return "Restored the previous '${sceneName}' scene. ${smoke.summary}"
+            val removedNote = if (beforeAssets.isEmpty()) "" else " Removed ${beforeAssets.size} unchanged AI-generated asset(s)."
+            return "Restored the previous '${sceneName}' scene.$removedNote ${smoke.summary}"
         } catch (e: Exception) {
-            if (before != null) try { file.writeText(before) } catch (_: Exception) { }
+            try { file.writeText(before) } catch (_: Exception) { }
+            beforeAssets.forEach { (name, bytes) -> try { project.writeAssetBytes(name, bytes) } catch (_: Exception) { } }
             throw e
         }
     }
+
+    private fun sha256(bytes: ByteArray): String = java.security.MessageDigest.getInstance("SHA-256")
+        .digest(bytes).joinToString("") { "%02x".format(it) }
 
     private fun validateProject(
         project: Project,

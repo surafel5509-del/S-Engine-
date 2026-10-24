@@ -11,6 +11,7 @@ object GameTemplateCatalog {
 
     private val knownDimensions = mapOf(
         "3d-demo" to GameDimension.THREE_D,
+        "aurora-station" to GameDimension.THREE_D,
     )
 
     fun entries(): List<Entry> = Templates.all.map { template ->
@@ -32,7 +33,7 @@ object GameSpecValidator {
         "speed", "jump", "jumpHeight", "health", "maxHealth", "damage", "fireRate", "range", "gravity",
     )
     private val components2D = setOf(
-        "SpriteRenderer", "TextRenderer", "Camera", "Rigidbody2D", "Collider2D", "Script",
+        "SpriteRenderer", "TextRenderer", "Camera", "Rigidbody2D", "Collider2D", "Joint2D", "Light2D", "Script",
         "ParticleEmitter", "AudioSource", "Animator",
     )
     private val components3D = setOf(
@@ -77,6 +78,13 @@ object GameSpecValidator {
         }
 
         spec.operations.forEachIndexed { index, operation -> validateOperation(spec.dimension, operation, index, issues) }
+        val generatedAssets = spec.operations.mapNotNull { generatedAssetName(it) }
+        if (generatedAssets.size > MAX_GENERATED_GAME_ASSETS) {
+            error("generated_asset_limit", "At most $MAX_GENERATED_GAME_ASSETS generated assets are allowed per plan.")
+        }
+        if (generatedAssets.size != generatedAssets.distinct().size) {
+            error("duplicate_generated_asset", "A plan cannot generate the same asset filename more than once.")
+        }
         return ValidationReport(issues)
     }
 
@@ -141,7 +149,80 @@ object GameSpecValidator {
                 if (!isColor(operation.color)) error("invalid_color", "HUD color must be #RRGGBB or #AARRGGBB.")
                 if (operation.order !in -10_000..10_000) error("invalid_order", "HUD draw order is outside the supported range.")
             }
+            is GameOperation.GeneratePixelSprite -> {
+                validateGeneratedAsset(operation.assetName, AssetKind.TEXTURE, index, issues)
+                if (operation.width !in 1..MAX_GENERATED_PIXEL_DIMENSION || operation.height !in 1..MAX_GENERATED_PIXEL_DIMENSION || operation.width * operation.height > MAX_GENERATED_PIXEL_DIMENSION * MAX_GENERATED_PIXEL_DIMENSION) {
+                    error("pixel_dimensions", "Generated pixel sprites must be between 1×1 and 64×64.")
+                }
+                if (operation.palette.isEmpty() || operation.palette.size > 16 || operation.palette.any { !isColor(it) }) {
+                    error("pixel_palette", "Pixel sprite palette must contain 1–16 valid #RRGGBB or #AARRGGBB colors.")
+                }
+                if (operation.rows.size != operation.height || operation.rows.any { it.length != operation.width }) {
+                    error("pixel_grid", "Pixel rows must match the declared width and height exactly.")
+                } else {
+                    operation.rows.forEach { row ->
+                        if (row.any { glyph -> glyph != '.' && (glyph.digitToIntOrNull(16) == null || glyph.digitToInt(16) >= operation.palette.size) }) {
+                            error("pixel_index", "Pixel rows may use only '.' or a valid 0–9/A–F palette index.")
+                            return@forEach
+                        }
+                    }
+                }
+            }
+            is GameOperation.GenerateSound -> {
+                validateGeneratedAsset(operation.assetName, AssetKind.SOUND, index, issues)
+                if (!operation.assetName.endsWith(".wav", ignoreCase = true)) error("sound_format", "Generated sound assets must use the .wav extension.")
+                if (operation.waveform !in setOf("sine", "square", "triangle", "saw", "noise")) error("sound_waveform", "Sound waveform must be sine, square, triangle, saw, or noise.")
+                if (!operation.frequencyHz.isFinite() || operation.frequencyHz !in 40f..2_000f || !operation.endFrequencyHz.isFinite() || operation.endFrequencyHz !in 40f..2_000f) {
+                    error("sound_frequency", "Sound frequencies must be between 40 and 2,000 Hz.")
+                }
+                if (operation.durationMs !in 80..3_000) error("sound_duration", "Generated sound effects must be 80–3,000 ms long.")
+                if (!operation.volume.isFinite() || operation.volume !in 0f..1f) error("sound_volume", "Sound volume must be between 0 and 1.")
+            }
+            is GameOperation.GenerateAnimationClip -> {
+                validateGeneratedAsset(operation.assetName, AssetKind.ANIMATION, index, issues)
+                if (!operation.assetName.endsWith(".anim", ignoreCase = true)) error("animation_format", "Animation clip assets must use the .anim extension.")
+                if (!isSafeAssetName(operation.textureAsset) || AssetKind.of(operation.textureAsset) != AssetKind.TEXTURE) error("animation_texture", "Animation texture must reference a simple image asset name.")
+                if (operation.columns !in 1..8 || operation.rows !in 1..8) error("animation_grid", "Animation sprite sheets must use 1–8 columns and rows.")
+                if (operation.frames.isEmpty() || operation.frames.size > 64 || operation.frames.any { it < 0 || it >= operation.columns * operation.rows }) {
+                    error("animation_frames", "Animation frames must be 1–64 valid zero-based indexes in the sprite sheet.")
+                }
+                if (!operation.fps.isFinite() || operation.fps !in 1f..60f) error("animation_fps", "Animation speed must be between 1 and 60 frames per second.")
+                if (!operation.pivotX.isFinite() || operation.pivotX !in 0f..1f || !operation.pivotY.isFinite() || operation.pivotY !in 0f..1f) {
+                    error("animation_pivot", "Animation pivots must be between 0 and 1.")
+                }
+            }
+            is GameOperation.GenerateShaderPreset -> {
+                validateGeneratedAsset(operation.assetName, AssetKind.SHADER, index, issues)
+                if (!operation.assetName.endsWith(".glsl", ignoreCase = true)) error("shader_format", "Shader preset assets must use the .glsl extension.")
+                if (operation.preset !in setOf("pulse", "grayscale", "sepia", "vignette", "pixelate", "invert", "chromatic")) {
+                    error("shader_preset", "Shader preset is not in the safe built-in list.")
+                }
+            }
+            is GameOperation.GenerateBlueprintPreset -> {
+                validateGeneratedAsset(operation.assetName, AssetKind.SCRIPT, index, issues)
+                if (!operation.assetName.endsWith(".bp", ignoreCase = true)) error("blueprint_format", "Blueprint preset assets must use the .bp extension.")
+                if (operation.preset !in setOf("platformer_controller", "character_3d_controller", "joystick_move", "rotator")) {
+                    error("blueprint_preset", "Blueprint preset is not in the safe built-in list.")
+                }
+                if (operation.preset == "character_3d_controller" && dimension != GameDimension.THREE_D) error("blueprint_dimension", "The 3D controller blueprint requires a 3D game.")
+                if (operation.preset == "platformer_controller" && dimension != GameDimension.TWO_D) error("blueprint_dimension", "The platformer controller blueprint requires a 2D game.")
+            }
         }
+    }
+
+    private fun validateGeneratedAsset(name: String, kind: AssetKind, index: Int, issues: MutableList<ValidationIssue>) {
+        if (!isSafeAssetName(name) || AssetKind.of(name) != kind) {
+            issues += ValidationIssue("invalid_generated_asset", "Generated asset must be a simple .$kind filename with no path.", operationIndex = index)
+        }
+    }
+
+    private fun generatedAssetName(operation: GameOperation): String? = when (operation) {
+        is GameOperation.GeneratePixelSprite -> operation.assetName
+        is GameOperation.GenerateSound -> operation.assetName
+        is GameOperation.GenerateAnimationClip -> operation.assetName
+        is GameOperation.GenerateShaderPreset -> operation.assetName
+        is GameOperation.GenerateBlueprintPreset -> operation.assetName
+        else -> null
     }
 
     private fun validateComponent(

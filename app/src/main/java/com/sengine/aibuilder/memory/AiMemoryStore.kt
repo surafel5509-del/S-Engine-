@@ -8,12 +8,14 @@ import java.util.UUID
 
 /** Redacts common credential forms before prompts are stored or forwarded to a provider. */
 object SensitiveText {
-    private val providerKey = Regex("(?i)\\bsk-or-v1-[A-Za-z0-9_-]{16,}\\b")
+    private val providerKeys = listOf(
+        Regex("(?i)\\bsk-(?:or-v1-|ant-api[0-9]+-|proj-)?[A-Za-z0-9_-]{16,}\\b"),
+        Regex("\\bAIza[0-9A-Za-z_-]{30,}\\b"),
+    )
     private val bearer = Regex("(?i)\\bBearer\\s+[A-Za-z0-9._~+/-]{16,}={0,2}")
     private val assignments = Regex("(?i)\\b(api[_ -]?key|password|passwd|secret|access[_ -]?token|refresh[_ -]?token)\\s*[:=]\\s*[^\\s,;]{6,}")
 
-    fun redact(text: String): String = text
-        .replace(providerKey, "[REDACTED]")
+    fun redact(text: String): String = providerKeys.fold(text) { value, pattern -> value.replace(pattern, "[REDACTED]") }
         .replace(bearer, "Bearer [REDACTED]")
         .replace(assignments) { match -> "${match.groupValues[1]}=[REDACTED]" }
         .take(8_000)
@@ -113,16 +115,6 @@ class AiMemoryStore(private val root: File) {
         return result
     }
 
-    /** Merge same-user records fetched from the private Supabase table without duplicate IDs. */
-    fun merge(projectKey: String, incoming: List<AiMemoryEvent>) = synchronized(lock) {
-        require(validKey(projectKey)) { "Memory project key is invalid" }
-        val merged = LinkedHashMap<String, AiMemoryEvent>()
-        read(projectKey).forEach { merged[it.clientId] = it }
-        incoming.filter { it.projectKey == projectKey && it.kind in setOf("message", "decision", "build", "repair") }
-            .forEach { merged.putIfAbsent(it.clientId, it) }
-        write(projectKey, merged.values.sortedBy { it.createdAt }.takeLast(MAX_EVENTS))
-    }
-
     fun projectKeys(): List<String> = synchronized(lock) {
         (root.listFiles() ?: emptyArray()).filter { it.isFile && it.name.endsWith(".json") }
             .mapNotNull { file -> try { JSONObject(file.readText()).optString("projectKey").takeIf(::validKey) } catch (_: Exception) { null } }
@@ -140,7 +132,7 @@ class AiMemoryStore(private val root: File) {
         dataFile(from).delete()
     }
 
-    /** Rollback scene snapshots are kept locally and are never synced to Supabase. */
+    /** Rollback snapshots and hashes for generated assets are stored only on this device. */
     fun pushRollback(projectKey: String, sceneName: String, sceneJson: String): String {
         require(validKey(projectKey) && validKey(sceneName)) { "Rollback target is invalid" }
         require(sceneJson.length <= MAX_ROLLBACK_CHARS) { "Rollback snapshot exceeds the size limit" }

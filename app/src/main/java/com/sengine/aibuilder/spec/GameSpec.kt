@@ -4,6 +4,8 @@ package com.sengine.aibuilder.spec
 const val GAME_SPEC_VERSION = 1
 const val MAX_GAME_OPERATIONS = 20
 const val MAX_COMPONENTS_PER_ENTITY = 8
+const val MAX_GENERATED_GAME_ASSETS = 8
+const val MAX_GENERATED_PIXEL_DIMENSION = 64
 
 /** Numeric string IDs are deliberately stable; they are not derived from file paths. */
 enum class GameAction(val wireName: String) {
@@ -113,6 +115,55 @@ sealed class GameOperation {
         val size: Float = 0.45f,
         val color: String = "#FFFFFFFF",
         val order: Int = 100,
+    ) : GameOperation()
+
+    /** Small indexed-color PNG generated locally from a bounded palette and pixel grid. */
+    data class GeneratePixelSprite(
+        override val scene: String = "start",
+        val assetName: String,
+        val width: Int,
+        val height: Int,
+        val palette: List<String>,
+        val rows: List<String>,
+    ) : GameOperation()
+
+    /** Short deterministic mono WAV effect; this recipe never accepts audio bytes or executable data. */
+    data class GenerateSound(
+        override val scene: String = "start",
+        val assetName: String,
+        val waveform: String,
+        val frequencyHz: Float,
+        val endFrequencyHz: Float,
+        val durationMs: Int,
+        val volume: Float,
+    ) : GameOperation()
+
+    /** Animation metadata for an existing or earlier-generated sprite sheet. */
+    data class GenerateAnimationClip(
+        override val scene: String = "start",
+        val assetName: String,
+        val textureAsset: String,
+        val columns: Int,
+        val rows: Int,
+        val frames: List<Int>,
+        val fps: Float,
+        val loop: Boolean,
+        val pivotX: Float = 0.5f,
+        val pivotY: Float = 0.5f,
+    ) : GameOperation()
+
+    /** Writes one vetted engine shader source from a fixed preset list, never model-written GLSL. */
+    data class GenerateShaderPreset(
+        override val scene: String = "start",
+        val assetName: String,
+        val preset: String,
+    ) : GameOperation()
+
+    /** Writes one vetted visual-blueprint graph from a fixed node recipe, never arbitrary source. */
+    data class GenerateBlueprintPreset(
+        override val scene: String = "start",
+        val assetName: String,
+        val preset: String,
     ) : GameOperation()
 }
 

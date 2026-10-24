@@ -20,6 +20,9 @@ import com.sengine.engine.core.TextRenderer
 import com.sengine.project.Project
 import org.json.JSONObject
 import java.io.File
+import java.nio.file.FileAlreadyExistsException
+import java.nio.file.Files
+import java.util.UUID
 import java.util.concurrent.CancellationException
 
 class GameBuildException(message: String, cause: Throwable? = null) : IllegalStateException(message, cause)
@@ -30,6 +33,8 @@ data class GameOperationResult(
     val changes: List<String>,
     /** Original serialized scene JSON, held outside the project for the optional undo action. */
     val rollbackSnapshots: Map<String, String>,
+    /** Newly generated assets are reversible too; the executor never overwrites an existing asset. */
+    val generatedAssets: List<String> = emptyList(),
 )
 
 /** Executes only the typed operation allowlist. No arbitrary paths, files, shell, or source writes. */
@@ -45,6 +50,16 @@ class SafeGameToolExecutor {
         }
         if (spec.action == GameAction.EXPLAIN) return GameOperationResult(emptyList(), emptyList(), emptyList(), emptyMap())
         if (spec.operations.isEmpty()) return GameOperationResult(emptyList(), emptyList(), emptyList(), emptyMap())
+
+        val requestedAssets = spec.operations.mapNotNull(::generatedAssetName).distinct()
+        for (assetName in requestedAssets) {
+            checkCancelled()
+            if (!GameSpecValidator.isSafeAssetName(assetName)) throw GameBuildException("Generated asset name is unsafe.")
+            val root = project.assetsDir.canonicalFile
+            val file = File(root, assetName).canonicalFile
+            if (file.parentFile != root) throw GameBuildException("Generated assets must stay directly inside the project assets folder.")
+            if (file.exists()) throw GameBuildException("Asset '$assetName' already exists; AI builds never overwrite project assets.")
+        }
 
         val sceneNames = spec.operations.map { resolveSceneName(project, it.scene) }.distinct()
         val originalFiles = LinkedHashMap<String, ByteArray?>()
@@ -62,13 +77,14 @@ class SafeGameToolExecutor {
         val snapshots = originalFiles.mapValues { (_, bytes) -> bytes?.toString(Charsets.UTF_8).orEmpty() }
         val changes = ArrayList<String>()
         val affected = LinkedHashSet<String>()
+        val createdAssets = LinkedHashSet<String>()
 
         try {
             spec.operations.forEachIndexed { index, operation ->
                 checkCancelled()
                 val name = resolveSceneName(project, operation.scene)
                 val scene = scenes[name] ?: throw GameBuildException("Operation ${index + 1} refers to an unavailable scene '$name'.")
-                val labels = applyOperation(project, scene, operation)
+                val labels = applyOperation(project, scene, operation, createdAssets)
                 affected += labels.first
                 changes += labels.second
             }
@@ -82,7 +98,7 @@ class SafeGameToolExecutor {
                 val errors = GameSceneValidator.validate(project, reloaded)
                 if (errors.isNotEmpty()) throw GameBuildException("Scene '$name' failed validation after the change:\n${errors.joinToString("\n")}")
             }
-            return GameOperationResult(sceneNames, affected.toList(), changes, snapshots)
+            return GameOperationResult(sceneNames, affected.toList(), changes, snapshots, createdAssets.toList())
         } catch (e: Exception) {
             var restoreError: String? = null
             for ((name, bytes) in originalFiles) {
@@ -95,6 +111,10 @@ class SafeGameToolExecutor {
                 } catch (restore: Exception) {
                     restoreError = restore.message ?: "could not restore $name"
                 }
+            }
+            for (assetName in createdAssets) {
+                try { project.assetFile(assetName).delete() }
+                catch (restore: Exception) { restoreError = restore.message ?: "could not remove generated asset $assetName" }
             }
             val message = e.message ?: e.javaClass.simpleName
             if (restoreError != null) throw GameBuildException("$message\nRollback also failed: $restoreError", e)
@@ -113,7 +133,7 @@ class SafeGameToolExecutor {
         return resolved
     }
 
-    private fun applyOperation(project: Project, scene: Scene, op: GameOperation): Pair<String, String> = when (op) {
+    private fun applyOperation(project: Project, scene: Scene, op: GameOperation, createdAssets: MutableSet<String>): Pair<String, String> = when (op) {
         is GameOperation.AddEntity -> {
             ensureNotDuplicate(scene, op.name)
             val go = scene.create(op.name)
@@ -181,6 +201,69 @@ class SafeGameToolExecutor {
             })
             go.name to "Added editable screen-space HUD text '${go.name}'."
         }
+        is GameOperation.GeneratePixelSprite -> {
+            val bytes = try { GeneratedAssetRecipes.pixelSprite(op.width, op.height, op.palette, op.rows) }
+                catch (e: Exception) { throw GameBuildException("Could not generate '${op.assetName}': ${e.message ?: "invalid pixel recipe"}", e) }
+            writeGeneratedAsset(project, op.assetName, bytes, createdAssets)
+            op.assetName to "Generated a ${op.width}×${op.height} transparent pixel-art PNG '${op.assetName}'."
+        }
+        is GameOperation.GenerateSound -> {
+            val bytes = try { GeneratedAssetRecipes.sound(op.waveform, op.frequencyHz, op.endFrequencyHz, op.durationMs, op.volume) }
+                catch (e: Exception) { throw GameBuildException("Could not generate '${op.assetName}': ${e.message ?: "invalid sound recipe"}", e) }
+            writeGeneratedAsset(project, op.assetName, bytes, createdAssets)
+            op.assetName to "Generated a ${op.durationMs} ms ${op.waveform} WAV sound effect '${op.assetName}'."
+        }
+        is GameOperation.GenerateAnimationClip -> {
+            if (!project.assetFile(op.textureAsset).isFile) throw GameBuildException("Animation sheet '${op.textureAsset}' must exist before '${op.assetName}' is generated.")
+            val json = try { GeneratedAssetRecipes.animationClip(op.textureAsset, op.columns, op.rows, op.frames, op.fps, op.loop, op.pivotX, op.pivotY) }
+                catch (e: Exception) { throw GameBuildException("Could not generate '${op.assetName}': ${e.message ?: "invalid animation recipe"}", e) }
+            writeGeneratedAsset(project, op.assetName, json.toByteArray(Charsets.UTF_8), createdAssets)
+            op.assetName to "Generated ${op.frames.size}-frame animation clip '${op.assetName}'."
+        }
+        is GameOperation.GenerateShaderPreset -> {
+            val source = try { GeneratedAssetRecipes.shaderPreset(op.preset) }
+                catch (e: Exception) { throw GameBuildException("Could not generate '${op.assetName}': ${e.message ?: "unknown shader preset"}", e) }
+            writeGeneratedAsset(project, op.assetName, source.toByteArray(Charsets.UTF_8), createdAssets)
+            op.assetName to "Generated vetted '${op.preset}' shader preset '${op.assetName}'."
+        }
+        is GameOperation.GenerateBlueprintPreset -> {
+            val graph = try { GeneratedAssetRecipes.blueprintPreset(op.preset) }
+                catch (e: Exception) { throw GameBuildException("Could not generate '${op.assetName}': ${e.message ?: "unknown blueprint preset"}", e) }
+            writeGeneratedAsset(project, op.assetName, graph.toByteArray(Charsets.UTF_8), createdAssets)
+            op.assetName to "Generated vetted '${op.preset}' visual blueprint '${op.assetName}'."
+        }
+    }
+
+    private fun writeGeneratedAsset(project: Project, name: String, bytes: ByteArray, createdAssets: MutableSet<String>) {
+        if (!GameSpecValidator.isSafeAssetName(name) || bytes.size > MAX_GENERATED_ASSET_BYTES) {
+            throw GameBuildException("Generated asset name or size exceeds the safe limit.")
+        }
+        val root = project.assetsDir.canonicalFile
+        val destination = File(root, name).canonicalFile
+        if (destination.parentFile != root) throw GameBuildException("Generated assets must stay inside the project assets folder.")
+        if (destination.exists()) throw GameBuildException("Asset '$name' already exists; AI builds never overwrite project assets.")
+        root.mkdirs()
+        val temp = File(root, ".ai-${UUID.randomUUID()}.tmp")
+        try {
+            temp.writeBytes(bytes)
+            try {
+                Files.move(temp.toPath(), destination.toPath())
+            } catch (e: FileAlreadyExistsException) {
+                throw GameBuildException("Asset '$name' already exists; AI builds never overwrite project assets.", e)
+            }
+            createdAssets += name
+        } finally {
+            temp.delete()
+        }
+    }
+
+    private fun generatedAssetName(operation: GameOperation): String? = when (operation) {
+        is GameOperation.GeneratePixelSprite -> operation.assetName
+        is GameOperation.GenerateSound -> operation.assetName
+        is GameOperation.GenerateAnimationClip -> operation.assetName
+        is GameOperation.GenerateShaderPreset -> operation.assetName
+        is GameOperation.GenerateBlueprintPreset -> operation.assetName
+        else -> null
     }
 
     private fun createComponent(project: Project, spec: ComponentSpec): Component {
@@ -266,4 +349,8 @@ class SafeGameToolExecutor {
 
     private fun requireObject(scene: Scene, name: String): GameObject =
         scene.find(name) ?: throw GameBuildException("Entity '$name' does not exist in scene '${scene.name}'.")
+
+    companion object {
+        private const val MAX_GENERATED_ASSET_BYTES = 512_000
+    }
 }

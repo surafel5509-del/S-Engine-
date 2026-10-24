@@ -53,6 +53,37 @@ class GameSpecCodecTest {
     }
 
     @Test
+    fun generatedAssetRecipesRoundTripThroughVersionedGameSpec() {
+        val raw = """{
+          "schemaVersion": 1,
+          "action": "create",
+          "projectName": "Recipe Game",
+          "genre": "2D platformer",
+          "dimension": "2d",
+          "templateId": "platformer-demo",
+          "summary": "Create small local art and sound assets.",
+          "operations": [
+            {"type":"generate_pixel_sprite","assetName":"AI_Hero.png","width":2,"height":2,"palette":["#FFFF0000"],"rows":["00","0."]},
+            {"type":"generate_sound","assetName":"AI_Coin.wav","waveform":"sine","frequencyHz":880,"endFrequencyHz":440,"durationMs":180,"volume":0.5},
+            {"type":"generate_animation_clip","assetName":"AI_Hero.anim","textureAsset":"AI_Hero.png","columns":1,"rows":1,"frames":[0],"fps":8,"loop":true,"pivotX":0.5,"pivotY":0.5},
+            {"type":"generate_shader_preset","assetName":"AI_Pulse.glsl","preset":"pulse"},
+            {"type":"generate_blueprint_preset","assetName":"AI_Controller.bp","preset":"platformer_controller"}
+          ]
+        }"""
+        val spec = GameSpecCodec.parse(raw)
+        assertTrue(GameSpecValidator.validate(spec).valid)
+        val restored = GameSpecCodec.parse(GameSpecCodec.toJson(spec).toString())
+        assertEquals(spec.operations, restored.operations)
+    }
+
+    @Test
+    fun safePlansCanUseInstalledLightingAndPhysicsComponents() {
+        val spec = GameSpecCodec.parse("""{"schemaVersion":1,"action":"create","projectName":"Lit Platformer","genre":"2D platformer","dimension":"2d","templateId":"platformer-demo","summary":"Add a local light and suspension joint.","operations":[{"type":"add_entity","name":"Glow","components":[{"type":"Light2D","properties":{"Type":"Point","Intensity":2.0}}]},{"type":"add_entity","name":"Wheel","components":[{"type":"Joint2D"}]}]}""")
+        val report = GameSpecValidator.validate(spec)
+        assertTrue(report.errors.joinToString { it.message }, report.valid)
+    }
+
+    @Test
     fun validatorRejectsUnsupportedCapabilitiesAndUnsafePaths() {
         val base = GameSpecCodec.parse("""{"schemaVersion":1,"action":"create","projectName":"Safe","genre":"platformer","dimension":"2d","templateId":"platformer-demo","summary":"Create a supported project.","operations":[{"type":"add_entity","scene":"../other","name":"../../outside","components":[{"type":"RunCommand"}]}]}""")
         val report = GameSpecValidator.validate(base)

@@ -11,7 +11,7 @@
 | Area | What you get |
 |---|---|
 | **Project manager** | Create from templates, open, play, rename, duplicate, delete, export / import projects as `.zip` |
-| **AI Game Builder** | Offline template planner plus reviewable, validated scene edits; optional direct OpenRouter mode with a user-supplied encrypted on-device key, or authenticated Supabase Edge Function → OpenRouter mode. No AI-generated source is executed; template scripts run only during creation smoke checks, not when editing existing projects. See [setup and limits](docs/ai-game-builder.md). |
+| **AI Game Studio** | Direct OpenRouter, OpenAI/ChatGPT API, Gemini, Claude and custom OpenAI-compatible provider keys (encrypted on-device); review-first plans, one-tap builds and a cancellable multi-pass autonomous agent. Builds validated S Engine projects and can generate small pixel-art textures, sound effects, animation metadata, safe shader presets and visual-blueprint presets. See [setup, privacy and limits](docs/ai-game-builder.md). |
 | **Scene editor** | Viewport with grid, pan (drag) & pinch-zoom, tap-to-select, **Move / Rotate / Scale gizmos** with axis handles, snapping, frame selected |
 | **Hierarchy** | Parent/child tree, collapse, visibility toggle, rename / duplicate / delete / reorder / create child / unparent |
 | **Inspector** | Edit name, tag, sorting order, parent, transform (drag labels to scrub values), every component property, color picker, asset pickers, add / remove / reorder / reset components |

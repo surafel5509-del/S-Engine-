@@ -96,7 +96,7 @@ object GameProjectInspector {
         return result
     }
 
-    /** Keep the serialized provider snapshot below the Edge Function's request budget. */
+    /** Keep project metadata bounded before it is sent directly to the selected provider. */
     private fun trimToBudget(snapshot: JSONObject) {
         val sceneArray = snapshot.optJSONArray("scenes") ?: return
         val assetArray = snapshot.optJSONArray("assets") ?: JSONArray()

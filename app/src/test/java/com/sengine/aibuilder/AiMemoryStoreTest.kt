@@ -1,9 +1,7 @@
 package com.sengine.aibuilder
 
-import com.sengine.aibuilder.memory.AiMemoryEvent
 import com.sengine.aibuilder.memory.AiMemoryStore
 import com.sengine.aibuilder.memory.SensitiveText
-import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -14,17 +12,13 @@ import java.nio.file.Files
 
 class AiMemoryStoreTest {
     @Test
-    fun memoriesAreProjectIsolatedBoundedAndIdempotentlyMerged() {
+    fun memoriesAreProjectIsolatedAndKeepLocalBuildHistory() {
         val dir = Files.createTempDirectory("ai-memory").toFile()
         val store = AiMemoryStore(dir)
         store.appendMessage("Project A", "user", "Create a coin platformer")
         store.appendDecision("Project A", "Prefer bright colors")
+        store.appendBuildEvent("Project A", "Platformer saved", "success")
         store.appendMessage("Project B", "user", "Create a space shooter")
-
-        val remote = AiMemoryEvent("8b3a7a5c-0b2d-4a65-9007-8d00f7e76a33", "Project A", "build",
-            JSONObject().put("status", "success").put("summary", "Platformer saved"), 10L)
-        store.merge("Project A", listOf(remote, remote))
-        store.merge("Project A", listOf(remote))
 
         val contextA = store.context("Project A").toString()
         val contextB = store.context("Project B").toString()
@@ -58,6 +52,10 @@ class AiMemoryStoreTest {
         val saved = event.payload.optString("text")
         assertFalse(saved.contains("abcdefghijk"))
         assertFalse(saved.contains("sk-or-v1-"))
+        val fakeClaudeKey = "sk-ant-api03-" + "abcdefghijklmnopqrstuvwxyz0123456789"
+        val fakeGeminiKey = "AIza" + "0123456789abcdefghijklmnopqrstuvwxyzABCDE"
+        assertFalse(SensitiveText.redact(fakeClaudeKey).contains("sk-ant-api03-"))
+        assertFalse(SensitiveText.redact(fakeGeminiKey).contains("AIza"))
         assertTrue(SensitiveText.redact("password: letmein123").contains("[REDACTED]"))
 
         val token = store.pushRollback("Demo", "Main", "{\"name\":\"Main\"}")

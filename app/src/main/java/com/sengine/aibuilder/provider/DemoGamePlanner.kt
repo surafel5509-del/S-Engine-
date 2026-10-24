@@ -142,7 +142,7 @@ object DemoGamePlanner {
         val action = if (operations.isEmpty()) GameAction.EXPLAIN else GameAction.EDIT
         val finalSummary = summary ?: "LOCAL DEMO MODE cannot safely implement this request using the installed engine tools without generating script code. " +
             "No project files were changed. Supported demo edits include an existing numeric jump/speed parameter, camera framing, player scale, and a static HUD label. " +
-            "Use Secure AI after configuring Supabase for a richer validated plan."
+            "Choose an AI provider and add its API key for richer validated plans and autonomous polish passes."
         return GameSpec(
             action = action,
             projectName = project.name,

@@ -20,14 +20,10 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.sengine.aibuilder.engine.GameBuildOutcome
-import com.sengine.aibuilder.memory.AiMemoryEvent
-import com.sengine.aibuilder.provider.AiBuilderSettingsStore
 import com.sengine.aibuilder.provider.AiGameBuilderService
 import com.sengine.aibuilder.provider.AiPlanResult
-import com.sengine.aibuilder.provider.AiProviderException
-import com.sengine.aibuilder.provider.DemoGamePlanner
+import com.sengine.aibuilder.provider.AiProviderKind
 import com.sengine.aibuilder.provider.RequestCancellation
-import com.sengine.aibuilder.provider.SupabaseAuthClient
 import com.sengine.aibuilder.spec.GameAction
 import com.sengine.aibuilder.spec.GameOperation
 import com.sengine.aibuilder.spec.GameSpec
@@ -52,12 +48,13 @@ class AiBuilderActivity : AppCompatActivity() {
     private lateinit var progressBar: ProgressBar
     private lateinit var cancelButton: android.widget.TextView
     private lateinit var planButton: android.widget.TextView
+    private lateinit var buildGameButton: android.widget.TextView
+    private lateinit var agentButton: android.widget.TextView
     private lateinit var historyColumn: LinearLayout
     private lateinit var planColumn: LinearLayout
     private val handler = Handler(Looper.getMainLooper())
     private val worker: ExecutorService = Executors.newSingleThreadExecutor()
     private var activeCancellation: RequestCancellation? = null
-    private var authCancellation: RequestCancellation? = null
     private var activeTask: java.util.concurrent.Future<*>? = null
     private var currentPlan: AiPlanResult? = null
     private var lastOutcome: GameBuildOutcome? = null
@@ -96,7 +93,6 @@ class AiBuilderActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         activeCancellation?.cancel()
-        authCancellation?.cancel()
         activeTask?.cancel(true)
         worker.shutdownNow()
         super.onDestroy()
@@ -107,8 +103,8 @@ class AiBuilderActivity : AppCompatActivity() {
         val header = hbox().apply { setPadding(dp(12), dp(10), dp(12), dp(8)); setBackgroundColor(C.HEADER) }
         header.addView(button("←") { finish() }, lp(WRAP, WRAP).margins(0, 0, dp(8), 0))
         val title = vbox()
-        title.addView(label("AI Game Builder", 22f, C.TEXT, true))
-        title.addView(label("Plan safely • build with S Engine • play in the editor", 12f, C.DIM))
+        title.addView(label("AI Game Studio", 22f, C.TEXT, true))
+        title.addView(label("Design • build • verify • play", 12f, C.DIM))
         header.addView(title, lp(0, WRAP, 1f))
         header.addView(button("Memory") { memoryDialog() }, lp(WRAP, WRAP).margins(dp(4), 0, dp(4), 0))
         header.addView(button("⚙") { settingsDialog() }, lp(WRAP, WRAP))
@@ -155,11 +151,17 @@ class AiBuilderActivity : AppCompatActivity() {
         scrollContent.addView(promptField, lp(MATCH, dp(116)).margins(0, dp(5), 0, dp(10)))
 
         val actionRow = hbox()
-        planButton = button("Plan request", C.ACCENT, 0xFFFFFFFF.toInt()) { makePlan() }
-        actionRow.addView(planButton, lp(0, WRAP, 1f).margins(0, 0, dp(6), 0))
-        cancelButton = button("Cancel", C.PANEL2) { cancelActiveRequest() }.apply { visibility = View.GONE }
-        actionRow.addView(cancelButton, lp(WRAP, WRAP))
+        planButton = button("Plan", C.PANEL2) { makePlan() }
+        actionRow.addView(planButton, lp(0, dp(44), 1f).margins(0, 0, dp(5), 0))
+        buildGameButton = button("Build game", C.ACCENT, 0xFFFFFFFF.toInt()) { startBuild(autonomous = false) }
+        actionRow.addView(buildGameButton, lp(0, dp(44), 1f).margins(0, 0, dp(5), 0))
+        agentButton = button("Agent", C.GREEN, 0xFFFFFFFF.toInt()) { startBuild(autonomous = true) }
+        actionRow.addView(agentButton, lp(0, dp(44), 1f).margins(0, 0, dp(7), 0))
+        cancelButton = button("Stop", C.RED, 0xFFFFFFFF.toInt()) { cancelActiveRequest() }.apply { visibility = View.GONE }
+        actionRow.addView(cancelButton, lp(WRAP, dp(44)))
         scrollContent.addView(actionRow, lp(MATCH, WRAP))
+        scrollContent.addView(label("Plan reviews without applying. Build game applies one validated plan. Agent can run up to five cancellable plan/build passes and may use provider credits.", 11f, C.DIM)
+            .apply { setPadding(0, dp(5), 0, 0) }, lp(MATCH, WRAP))
 
         progressBar = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply { visibility = View.GONE }
         scrollContent.addView(progressBar, lp(MATCH, dp(4)).margins(0, dp(8), 0, dp(3)))
@@ -225,20 +227,17 @@ class AiBuilderActivity : AppCompatActivity() {
 
     private fun updateStatus() {
         val settings = service.settings
-        val config = settings.config()
         val demo = settings.useDemoMode()
-        val direct = !demo && settings.useDirectOpenRouterMode()
-        val secureReady = !demo && !direct && config != null && settings.hasSession()
+        val profile = settings.activeProfile()
+        val hasKey = settings.hasApiKey(profile.kind)
         statusText.text = when {
-            demo -> "LOCAL DEMO  •  No network/model calls. Uses installed templates and safe local edits."
-            direct && settings.hasOpenRouterApiKey() -> "DIRECT OPENROUTER  •  No Supabase/Auth/backend. Key encrypted on this device; memory stays local.  •  ${settings.model()}"
-            direct -> "DIRECT OPENROUTER SETUP REQUIRED  •  Add your OpenRouter API key in Settings. No Supabase account is needed."
-            secureReady -> "SECURE AI  •  Supabase-authenticated Edge Function → OpenRouter  •  ${config!!.model}"
-            else -> "SETUP REQUIRED  •  Configure Supabase and sign in, or choose Direct OpenRouter/Local Demo in Settings."
+            demo -> "LOCAL TEMPLATE MODE  •  No model/network calls. Choose a real AI provider in Settings to generate and iterate on builds."
+            hasKey -> "${profile.kind.displayName.uppercase()} READY  •  ${profile.model}  •  API key encrypted on this device; conversation memory stays local."
+            else -> "SETUP REQUIRED  •  Open Settings, choose OpenRouter, OpenAI / ChatGPT API, Gemini, Claude, or another compatible provider, then add its API key."
         }
         statusText.setTextColor(when {
             demo -> 0xFFB7D7F0.toInt()
-            direct && settings.hasOpenRouterApiKey() || secureReady -> 0xFF8EE3B2.toInt()
+            hasKey -> 0xFF8EE3B2.toInt()
             else -> C.YELLOW
         })
     }
@@ -263,7 +262,7 @@ class AiBuilderActivity : AppCompatActivity() {
                     finishTask(taskId)
                     renderPlan(result)
                     renderMemory()
-                    progressText.text = result.cloudMemoryStatus
+                    progressText.text = result.memoryStatus
                 }
             } catch (e: Exception) {
                 handler.post {
@@ -271,6 +270,65 @@ class AiBuilderActivity : AppCompatActivity() {
                     finishTask(taskId)
                     if (cancellation.isCancelled) progressText.text = "Planning cancelled. No plan was applied."
                     else showFailure("Planning failed", e.message ?: "Unexpected error. No plan was applied.")
+                    renderMemory()
+                }
+            }
+        }
+    }
+
+    private fun startBuild(autonomous: Boolean) {
+        val prompt = promptField.text.toString().trim()
+        if (prompt.isBlank()) { toast("Describe your game or change first"); return }
+        currentPlan = null
+        planColumn.removeAllViews()
+        val target = selectedProjectName()
+        lastMemoryKey = target ?: draftKey
+        val passLimit = if (autonomous) service.settings.agentMaxPasses() else 1
+        val startMessage = if (autonomous) "Starting autonomous AI agent — up to $passLimit safe build passes…"
+            else "Starting AI build — planning, validating, and checking the game…"
+        val taskId = beginTask(startMessage)
+        val cancellation = RequestCancellation()
+        activeCancellation = cancellation
+        activeTask = worker.submit {
+            try {
+                val result = service.buildAutonomously(
+                    rawPrompt = prompt,
+                    selectedProjectName = target,
+                    preferredTemplateId = preferredTemplateId(),
+                    draftKey = draftKey,
+                    maxPasses = passLimit,
+                    cancellation = cancellation,
+                    onProgress = { message -> handler.post {
+                        if (!isFinishing && !isDestroyed && taskId == taskGeneration) progressText.text = message
+                    } },
+                )
+                handler.post {
+                    if (isFinishing || isDestroyed || taskId != taskGeneration) return@post
+                    finishTask(taskId)
+                    currentPlan = result.finalPlan
+                    lastOutcome = result.outcome
+                    renderBuildReport(
+                        result.outcome,
+                        agentPasses = result.passes,
+                        completionNote = result.completionNote,
+                        mode3d = result.finalPlan.spec.dimension.wireName == "3d",
+                    )
+                    if (result.outcome.report.created) reloadProjects(result.outcome.project.name)
+                    lastMemoryKey = result.outcome.project.name
+                    renderMemory()
+                    progressText.text = "AI build complete — your saved game passed the S Engine headless startup check."
+                    Toast.makeText(this, "${result.outcome.project.name} is ready to open in S Engine", Toast.LENGTH_LONG).show()
+                    startActivity(Intent(this, EditorActivity::class.java)
+                        .putExtra("project", result.outcome.project.name)
+                        .putExtra("mode3d", result.finalPlan.spec.dimension.wireName == "3d"))
+                }
+            } catch (e: Exception) {
+                handler.post {
+                    if (isFinishing || isDestroyed || taskId != taskGeneration) return@post
+                    finishTask(taskId)
+                    if (cancellation.isCancelled) {
+                        showFailure("Build stopped", "No unfinished operation batch was kept. Any failed edit was rolled back and an unpublished new project was discarded.", error = false)
+                    } else showFailure("AI build failed", e.message ?: "The project was not changed, or the failed transaction was rolled back.")
                     renderMemory()
                 }
             }
@@ -292,7 +350,7 @@ class AiBuilderActivity : AppCompatActivity() {
                     if (isFinishing || isDestroyed || taskId != taskGeneration) return@post
                     finishTask(taskId)
                     lastOutcome = result
-                    renderBuildReport(result)
+                    renderBuildReport(result, mode3d = plan.spec.dimension.wireName == "3d")
                     if (result.report.created) reloadProjects(result.project.name)
                     lastMemoryKey = result.project.name
                     renderMemory()
@@ -371,7 +429,12 @@ class AiBuilderActivity : AppCompatActivity() {
         planColumn.addView(card, lp(MATCH, WRAP).margins(0, dp(12), 0, 0))
     }
 
-    private fun renderBuildReport(outcome: GameBuildOutcome) {
+    private fun renderBuildReport(
+        outcome: GameBuildOutcome,
+        agentPasses: Int? = null,
+        completionNote: String = "",
+        mode3d: Boolean = false,
+    ) {
         planColumn.removeAllViews()
         val report = outcome.report
         val card = vbox().apply {
@@ -381,11 +444,13 @@ class AiBuilderActivity : AppCompatActivity() {
         card.addView(label(if (report.created) "PROJECT CREATED & VERIFIED" else "PROJECT EDIT APPLIED", 13f, 0xFF8EE3B2.toInt(), true))
         card.addView(label("${outcome.project.name}  •  ${report.templateName}", 13f, C.TEXT, true).apply { setPadding(0, dp(5), 0, dp(5)) })
         card.addView(label(report.summary, 13f, C.TEXT))
+        if (agentPasses != null) card.addView(label("Autonomous passes completed: $agentPasses", 11f, C.DIM).apply { setPadding(0, dp(5), 0, 0) })
+        if (completionNote.isNotBlank()) card.addView(label(completionNote, 12f, C.DIM).apply { setPadding(0, dp(5), 0, 0) })
         report.changes.forEach { card.addView(label("• $it", 12f, C.TEXT).apply { setPadding(0, dp(4), 0, 0) }) }
         if (report.affectedObjects.isNotEmpty()) card.addView(label("Affected: ${report.affectedObjects.joinToString()}", 12f, C.DIM).apply { setPadding(0, dp(6), 0, 0) })
         card.addView(label("\nValidation: project and scenes saved, reopened through S Engine project APIs.\n${report.runtimeSmokeTest}", 11f, 0xFFB7D7F0.toInt()))
         val buttons = hbox().apply { setPadding(0, dp(10), 0, 0) }
-        buttons.addView(button("Open Editor") { openEditor(outcome.project, report.templateName == "3D Demo") }, lp(0, WRAP, 1f).margins(0, 0, dp(5), 0))
+        buttons.addView(button("Open Editor") { openEditor(outcome.project, mode3d) }, lp(0, WRAP, 1f).margins(0, 0, dp(5), 0))
         buttons.addView(button("Play") { openPlayer(outcome.project) }, lp(WRAP, WRAP).margins(0, 0, dp(5), 0))
         if (report.rollbackToken != null && report.rollbackScene != null) {
             buttons.addView(button("Undo AI edit", C.RED, 0xFFFFFFFF.toInt()) { rollback(report.rollbackScene) }, lp(WRAP, WRAP))
@@ -410,6 +475,11 @@ class AiBuilderActivity : AppCompatActivity() {
         is GameOperation.RenameEntity -> "Rename '${operation.objectName}' to '${operation.newName}' if no script references would break"
         is GameOperation.SetSceneGravity -> "Adjust gravity in ${operation.scene}"
         is GameOperation.AddHudText -> "Add static HUD label '${operation.name}': ${operation.text}"
+        is GameOperation.GeneratePixelSprite -> "Generate ${operation.width}×${operation.height} pixel-art texture '${operation.assetName}'"
+        is GameOperation.GenerateSound -> "Generate ${operation.durationMs} ms ${operation.waveform} sound effect '${operation.assetName}'"
+        is GameOperation.GenerateAnimationClip -> "Generate ${operation.frames.size}-frame animation '${operation.assetName}' from '${operation.textureAsset}'"
+        is GameOperation.GenerateShaderPreset -> "Generate vetted '${operation.preset}' shader preset '${operation.assetName}'"
+        is GameOperation.GenerateBlueprintPreset -> "Generate vetted '${operation.preset}' visual blueprint '${operation.assetName}'"
     }
 
     private fun valueText(value: SpecValue): String = when (value) {
@@ -479,9 +549,9 @@ class AiBuilderActivity : AppCompatActivity() {
         val key = memoryKey()
         val content = vbox().apply { setPadding(dp(18), dp(8), dp(18), dp(6)) }
         content.addView(label(service.memorySummary(key), 13f, C.TEXT))
-        content.addView(label("\nSensitive-looking key/token/password text is redacted before local storage and provider requests. Do not paste secrets into game prompts. For AI requests, bounded retrieved memory and project context are sent to the selected provider; Direct OpenRouter does not sync them to Supabase. History synced during an earlier Secure AI session remains in Supabase until deleted there. You can inspect and delete this project's local memory below.", 11f, C.DIM))
+        content.addView(label("\nPrompts, bounded conversation memory, and the current project snapshot may be sent directly to the selected AI provider when online AI is enabled. API keys are encrypted by Android Keystore and are never stored in the project or source code. Sensitive-looking key/token/password text is redacted before memory storage. All builder memory and rollback data stay on this device; no cloud account or project upload is used. Turning off memory saving also disables persistent undo snapshots; failed build transactions still roll back.", 11f, C.DIM))
         val remember = CheckBox(this).apply {
-            text = "Remember chat, design decisions, and build summaries on this device"
+            text = "Remember chat, design decisions, build summaries, and undo snapshots on this device"
             setTextColor(C.TEXT)
             isChecked = service.settings.rememberOnDevice()
         }
@@ -503,7 +573,7 @@ class AiBuilderActivity : AppCompatActivity() {
             dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
                 MaterialAlertDialogBuilder(this)
                     .setTitle("Delete memory for '$key'?")
-                    .setMessage("This removes this project's local AI messages, decisions, build events, and rollback snapshots. In Secure Supabase mode, remote deletion is also attempted. Direct OpenRouter and Local Demo delete only local data; records synced during a previous Secure AI session remain in Supabase until deleted there.")
+                    .setMessage("This removes this project's local AI messages, design decisions, build events, and rollback snapshots. Provider conversations are not synced to an S Engine cloud service.")
                     .setPositiveButton("Delete memory") { _, _ -> clearMemory(key) }
                     .setNegativeButton("Cancel", null)
                     .show()
@@ -518,7 +588,7 @@ class AiBuilderActivity : AppCompatActivity() {
         val cancellation = RequestCancellation()
         activeCancellation = cancellation
         activeTask = worker.submit {
-            val result = try { service.clearMemory(key, cancellation) } catch (e: Exception) { "Local memory was cleared; remote status is uncertain (${e.message ?: "network error"})." }
+            val result = try { service.clearMemory(key, cancellation) } catch (e: Exception) { "Device-only memory could not be fully cleared (${e.message ?: "storage error"})." }
             handler.post {
                 if (isFinishing || isDestroyed || taskId != taskGeneration) return@post
                 finishTask(taskId)
@@ -531,208 +601,134 @@ class AiBuilderActivity : AppCompatActivity() {
 
     private fun settingsDialog() {
         val settings = service.settings
-        val config = settings.config()
+        val kinds = AiProviderKind.entries
         val box = vbox().apply { setPadding(dp(18), dp(8), dp(18), dp(5)) }
-        box.addView(label("Direct OpenRouter calls the provider from this device without Supabase Auth or a backend. Your key is encrypted with Android Keystore. The prompt, bounded project snapshot, and (when memory is enabled) retrieved memory are sent to OpenRouter to generate a plan; they are not synced to Supabase. Provider charges may apply.", 12f, C.YELLOW))
-        val url = field(config?.projectUrl.orEmpty())
-        url.hint = "https://your-project.supabase.co"
-        box.addView(label("Supabase project URL", 11f, C.DIM).apply { setPadding(0, dp(8), 0, dp(2)) })
-        box.addView(url, lp(MATCH, WRAP))
-        val anonKey = field(config?.anonKey.orEmpty())
-        anonKey.hint = "Supabase publishable / anon key (client key)"
-        anonKey.isSaveEnabled = false
-        box.addView(label("Supabase publishable/anon key (not a service-role key)", 11f, C.DIM).apply { setPadding(0, dp(7), 0, dp(2)) })
-        box.addView(anonKey, lp(MATCH, WRAP))
-        val model = field(config?.model ?: AiBuilderSettingsStore.DEFAULT_MODEL)
-        model.hint = "OpenRouter model ID, for example openai/gpt-4o-mini"
-        box.addView(label("OpenRouter model ID (used by either OpenRouter mode)", 11f, C.DIM).apply { setPadding(0, dp(7), 0, dp(2)) })
-        box.addView(model, lp(MATCH, WRAP))
+        box.addView(label(
+            "Connect a provider directly. Keys are encrypted with Android Keystore and sent only to the selected HTTPS provider; S Engine has no AI backend or cloud project storage. Provider usage may cost money. Never paste keys into prompts or source code.",
+            12f, C.YELLOW,
+        ))
 
-        val openRouterKey = field("").apply {
-            hint = if (settings.hasOpenRouterApiKey()) "Key saved encrypted; leave blank to keep it" else "sk-or-v1-…"
+        box.addView(label("AI PROVIDER", 11f, C.DIM, true).apply { setPadding(0, dp(10), 0, dp(2)) })
+        val providerSpinner = Spinner(this)
+        val providerAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, kinds.map { it.displayName })
+        providerAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        providerSpinner.adapter = providerAdapter
+        providerSpinner.setSelection(kinds.indexOf(settings.activeProvider()).coerceAtLeast(0), false)
+        box.addView(providerSpinner, lp(MATCH, dp(48)))
+
+        val modelField = field(settings.activeProfile().model)
+        modelField.hint = "Provider model ID"
+        box.addView(label("MODEL ID", 11f, C.DIM, true).apply { setPadding(0, dp(7), 0, dp(2)) })
+        box.addView(modelField, lp(MATCH, WRAP))
+
+        val endpointRow = vbox()
+        endpointRow.addView(label("HTTPS API BASE URL (CUSTOM PROVIDER)", 11f, C.DIM, true).apply { setPadding(0, dp(7), 0, dp(2)) })
+        val endpointField = field(settings.profile(AiProviderKind.OPENAI_COMPATIBLE).endpoint)
+        endpointField.hint = "https://api.example.com/v1"
+        endpointRow.addView(endpointField, lp(MATCH, WRAP))
+        endpointRow.addView(label("The app appends /chat/completions unless the URL already ends with it. Only use a provider you trust.", 10f, C.DIM)
+            .apply { setPadding(0, dp(3), 0, 0) })
+        box.addView(endpointRow, lp(MATCH, WRAP))
+
+        val apiKeyField = field("").apply {
+            hint = "Paste provider API key"
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
             isSaveEnabled = false
         }
-        box.addView(label("Direct OpenRouter API key (stored encrypted on this device only)", 11f, C.DIM).apply { setPadding(0, dp(8), 0, dp(2)) })
-        box.addView(openRouterKey, lp(MATCH, WRAP))
-        box.addView(button("Forget saved OpenRouter key", C.PANEL2) {
-            settings.clearOpenRouterApiKey()
-            openRouterKey.text.clear()
-            openRouterKey.hint = "sk-or-v1-…"
-            toast("Saved OpenRouter key deleted from this device")
-            updateStatus()
-        }, lp(MATCH, WRAP).margins(0, dp(4), 0, dp(4)))
+        box.addView(label("API KEY  •  blank keeps the existing encrypted key", 11f, C.DIM, true).apply { setPadding(0, dp(7), 0, dp(2)) })
+        box.addView(apiKeyField, lp(MATCH, WRAP))
+        val keyStatus = label("", 11f, C.DIM).apply { setPadding(0, dp(4), 0, 0) }
+        box.addView(keyStatus, lp(MATCH, WRAP))
 
-        val email = field("")
-        email.hint = "Email"
-        box.addView(label("Supabase Auth", 11f, C.DIM, true).apply { setPadding(0, dp(10), 0, dp(2)) })
-        box.addView(email, lp(MATCH, WRAP))
-        val password = field("").apply {
-            hint = "Password (used for this sign-in only)"
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-            isSaveEnabled = false
-        }
-        box.addView(password, lp(MATCH, WRAP).margins(0, dp(4), 0, 0))
-        val demo = CheckBox(this).apply {
-            text = "Use Local Demo mode (no network/model calls)"
+        val localMode = CheckBox(this).apply {
+            text = "Use Local Template mode (no model/network calls)"
             setTextColor(C.TEXT)
             isChecked = settings.useDemoMode()
         }
-        val direct = CheckBox(this).apply {
-            text = "Use Direct OpenRouter (no Supabase Auth or backend)"
-            setTextColor(C.TEXT)
-            isChecked = settings.useDirectOpenRouterMode() && !settings.useDemoMode()
-        }
-        box.addView(direct, lp(MATCH, WRAP).margins(0, dp(6), 0, 0))
-        box.addView(demo, lp(MATCH, WRAP))
+        box.addView(localMode, lp(MATCH, WRAP).margins(0, dp(9), 0, 0))
         val remember = CheckBox(this).apply {
-            text = "Remember chat/build memory on this device"
+            text = "Save conversation/build history and undo snapshots on this device"
             setTextColor(C.TEXT)
             isChecked = settings.rememberOnDevice()
         }
         box.addView(remember, lp(MATCH, WRAP))
-        val authStatus = label(when {
-            direct.isChecked && settings.hasOpenRouterApiKey() -> "Direct OpenRouter key is encrypted with Android Keystore. No Supabase session is used."
-            direct.isChecked -> "Add an OpenRouter API key above, then choose Direct OpenRouter. No Supabase account is required."
-            settings.hasSession() -> "Supabase session stored encrypted with Android Keystore."
-            else -> "Secure Supabase mode requires an account. Direct OpenRouter does not."
-        }, 11f, C.DIM)
-        demo.setOnCheckedChangeListener { _, checked ->
-            if (checked) direct.isChecked = false
-            authStatus.text = if (demo.isChecked) "Local Demo makes no network/model calls." else "Secure Supabase mode requires an account. Direct OpenRouter does not."
-        }
-        direct.setOnCheckedChangeListener { _, checked ->
-            if (checked) demo.isChecked = false
-            authStatus.text = if (direct.isChecked) {
-                if (settings.hasOpenRouterApiKey()) "Direct OpenRouter key is encrypted with Android Keystore. No Supabase session is used."
-                else "Add an OpenRouter API key above. No Supabase account is required."
-            } else if (settings.hasSession()) "Supabase session stored encrypted with Android Keystore."
-            else "Secure Supabase mode requires an account. Direct OpenRouter does not."
-        }
-        box.addView(authStatus, lp(MATCH, WRAP).margins(0, dp(4), 0, dp(7)))
-        val buttons = vbox()
-        buttons.addView(button("Save AI settings", C.PANEL2) {
-            saveSettings(url, anonKey, model, openRouterKey, demo, direct, remember, authStatus)
-        }, lp(MATCH, WRAP).margins(0, 0, 0, dp(5)))
-        buttons.addView(button("Sign in to Supabase", C.ACCENT, 0xFFFFFFFF.toInt()) {
-            authAction(url, anonKey, model, email, password, demo, direct, remember, authStatus, signUp = false)
-        }, lp(MATCH, WRAP).margins(0, 0, 0, dp(5)))
-        buttons.addView(button("Create Supabase account", C.PANEL2) {
-            authAction(url, anonKey, model, email, password, demo, direct, remember, authStatus, signUp = true)
-        }, lp(MATCH, WRAP).margins(0, 0, 0, dp(5)))
-        buttons.addView(button("Sign out", C.PANEL2) {
-            service.settings.clearSession()
-            settings.setUseDemoMode(true)
-            settings.setUseDirectOpenRouterMode(false)
-            demo.isChecked = true
-            direct.isChecked = false
-            authStatus.text = "Signed out on this device. Local Demo is selected."
-            updateStatus()
-        }, lp(MATCH, WRAP))
-        box.addView(buttons, lp(MATCH, WRAP))
 
-        val dialog = MaterialAlertDialogBuilder(this).setTitle("AI provider & privacy")
+        box.addView(label("AUTONOMOUS AGENT PASSES  •  each pass may make a provider request", 11f, C.DIM, true)
+            .apply { setPadding(0, dp(6), 0, dp(2)) })
+        val passesSpinner = Spinner(this)
+        val passAdapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, (1..5).map { "$it pass${if (it == 1) "" else "es"}" })
+        passAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        passesSpinner.adapter = passAdapter
+        passesSpinner.setSelection(settings.agentMaxPasses() - 1, false)
+        box.addView(passesSpinner, lp(MATCH, dp(46)))
+
+        fun selectedKind(): AiProviderKind = kinds.getOrElse(providerSpinner.selectedItemPosition) { AiProviderKind.OPENROUTER }
+        fun refreshKeyStatus() {
+            val kind = selectedKind()
+            endpointRow.visibility = if (kind == AiProviderKind.OPENAI_COMPATIBLE) View.VISIBLE else View.GONE
+            keyStatus.text = when {
+                localMode.isChecked -> "Local Template mode is selected; provider keys are not used."
+                settings.hasApiKey(kind) -> "${kind.displayName} key is saved encrypted on this device."
+                else -> "No ${kind.displayName} key is saved yet. Add one to enable online AI builds."
+            }
+        }
+        providerSpinner.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+            override fun onItemSelected(parent: android.widget.AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val kind = kinds.getOrElse(position) { AiProviderKind.OPENROUTER }
+                val profile = settings.profile(kind)
+                modelField.setText(profile.model)
+                endpointField.setText(profile.endpoint)
+                apiKeyField.text.clear()
+                refreshKeyStatus()
+            }
+        }
+        localMode.setOnCheckedChangeListener { _, _ -> refreshKeyStatus() }
+        refreshKeyStatus()
+
+        box.addView(button("Forget this provider's saved API key", C.PANEL2) {
+            val kind = selectedKind()
+            settings.clearApiKey(kind)
+            apiKeyField.text.clear()
+            refreshKeyStatus()
+            updateStatus()
+            toast("${kind.displayName} key deleted from this device")
+        }, lp(MATCH, WRAP).margins(0, dp(5), 0, dp(4)))
+
+        box.addView(label("Privacy: bounded project metadata, your prompt, and (if enabled) local conversation context go directly to the selected provider. Scene script source and absolute file paths are not included. Generated changes are validated and reversible; arbitrary code execution is not offered.", 10f, C.DIM)
+            .apply { setPadding(0, dp(7), 0, dp(8)) })
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("AI providers & agent")
             .setView(ScrollView(this).apply { addView(box) })
             .setPositiveButton("Done", null)
             .setNegativeButton("Close", null)
             .create()
-        dialog.show()
-    }
-
-    private fun saveSettings(
-        url: EditText,
-        anon: EditText,
-        model: EditText,
-        openRouterKey: EditText,
-        demo: CheckBox,
-        direct: CheckBox,
-        remember: CheckBox,
-        status: android.widget.TextView,
-    ) {
-        try {
-            val settings = service.settings
-            settings.saveModel(model.text.toString())
-            val enteredKey = openRouterKey.text.toString().trim()
-            if (enteredKey.isNotEmpty()) settings.saveOpenRouterApiKey(enteredKey)
-            if (!demo.isChecked && !direct.isChecked) {
-                settings.saveConfig(url.text.toString(), anon.text.toString(), model.text.toString())
-            }
-            if (direct.isChecked && !settings.hasOpenRouterApiKey()) {
-                throw IllegalArgumentException("Enter and save your OpenRouter API key, or select Local Demo / Secure Supabase.")
-            }
-            settings.setUseDemoMode(demo.isChecked)
-            settings.setUseDirectOpenRouterMode(direct.isChecked)
-            settings.setRememberOnDevice(remember.isChecked)
-            openRouterKey.text.clear()
-            openRouterKey.hint = if (settings.hasOpenRouterApiKey()) "Key saved encrypted; leave blank to keep it" else "sk-or-v1-…"
-            status.text = when {
-                direct.isChecked -> "Direct OpenRouter saved. No Supabase/Auth/backend is used; memory remains on this device."
-                demo.isChecked -> "Local Demo selected. No model or network requests will be made."
-                settings.hasSession() -> "Secure AI settings saved. Supabase session is encrypted with Android Keystore."
-                else -> "Supabase settings saved. Sign in to enable Secure AI, or select Direct OpenRouter."
-            }
-            status.setTextColor(if (direct.isChecked || settings.hasSession()) 0xFF8EE3B2.toInt() else C.DIM)
-            updateStatus()
-        } catch (e: Exception) {
-            status.text = e.message ?: "Settings are invalid."
-            status.setTextColor(C.RED)
-        }
-    }
-
-    private fun authAction(
-        url: EditText,
-        anon: EditText,
-        model: EditText,
-        email: EditText,
-        password: EditText,
-        demo: CheckBox,
-        direct: CheckBox,
-        remember: CheckBox,
-        status: android.widget.TextView,
-        signUp: Boolean,
-    ) {
-        try {
-            service.settings.saveConfig(url.text.toString(), anon.text.toString(), model.text.toString())
-            service.settings.setRememberOnDevice(remember.isChecked)
-        } catch (e: Exception) {
-            status.text = e.message ?: "Supabase settings are invalid."
-            return
-        }
-        val cfg = service.settings.config() ?: run { status.text = "Supabase config is incomplete."; return }
-        val passwordValue = password.text.toString()
-        val emailValue = email.text.toString()
-        val cancellation = RequestCancellation()
-        authCancellation = cancellation
-        status.text = if (signUp) "Creating Supabase Auth account…" else "Signing in…"
-        status.setTextColor(C.DIM)
-        worker.submit {
-            val result: Pair<com.sengine.aibuilder.provider.AuthOutcome?, String?> = try {
-                val client = SupabaseAuthClient(service.settings)
-                val outcome = if (signUp) client.signUp(cfg, emailValue, passwordValue, cancellation)
-                else client.signIn(cfg, emailValue, passwordValue, cancellation)
-                outcome to null
-            } catch (e: Exception) { null to (e.message ?: "Supabase Auth request failed") }
-            handler.post {
-                if (isFinishing || isDestroyed) return@post
-                password.setText("")
-                authCancellation = null
-                val outcome = result.first
-                val error = result.second
-                if (outcome != null) {
-                    status.text = outcome.message
-                    status.setTextColor(if (outcome.signedIn) 0xFF8EE3B2.toInt() else C.YELLOW)
-                    if (outcome.signedIn) {
-                        service.settings.setUseDemoMode(demo.isChecked)
-                        service.settings.setUseDirectOpenRouterMode(false)
-                        direct.isChecked = false
-                    }
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                try {
+                    val kind = selectedKind()
+                    val model = modelField.text.toString()
+                    val endpoint = if (kind == AiProviderKind.OPENAI_COMPATIBLE) endpointField.text.toString() else ""
+                    settings.saveProfile(kind, model, endpoint)
+                    val enteredKey = apiKeyField.text.toString().trim()
+                    if (enteredKey.isNotEmpty()) settings.saveApiKey(kind, enteredKey)
+                    settings.setActiveProvider(kind)
+                    settings.setUseDemoMode(localMode.isChecked)
+                    settings.setRememberOnDevice(remember.isChecked)
+                    settings.setAgentMaxPasses(passesSpinner.selectedItemPosition + 1)
+                    apiKeyField.text.clear()
+                    refreshKeyStatus()
                     updateStatus()
-                } else {
-                    status.text = error ?: "Supabase Auth failed. Check network/configuration."
-                    status.setTextColor(C.RED)
+                    toast(if (localMode.isChecked) "Local Template mode saved" else "${kind.displayName} settings saved on this device")
+                    dialog.dismiss()
+                } catch (e: Exception) {
+                    keyStatus.text = e.message ?: "Settings are invalid."
+                    keyStatus.setTextColor(C.RED)
                 }
             }
         }
+        dialog.show()
     }
 
     private fun beginTask(message: String): Int {
@@ -743,8 +739,7 @@ class AiBuilderActivity : AppCompatActivity() {
         progressBar.visibility = View.VISIBLE
         progressBar.isIndeterminate = true
         cancelButton.visibility = View.VISIBLE
-        planButton.isEnabled = false
-        planButton.alpha = 0.55f
+        listOf(planButton, buildGameButton, agentButton).forEach { it.isEnabled = false; it.alpha = 0.55f }
         projectSpinner.isEnabled = false
         templateSpinner.isEnabled = false
         return generation
@@ -757,8 +752,7 @@ class AiBuilderActivity : AppCompatActivity() {
         taskDescription = ""
         progressBar.visibility = View.GONE
         cancelButton.visibility = View.GONE
-        planButton.isEnabled = true
-        planButton.alpha = 1f
+        listOf(planButton, buildGameButton, agentButton).forEach { it.isEnabled = true; it.alpha = 1f }
         projectSpinner.isEnabled = true
         templateSpinner.isEnabled = true
         activeCancellation = null
@@ -771,9 +765,11 @@ class AiBuilderActivity : AppCompatActivity() {
         activeTask?.cancel(true)
         finishTask()
         progressText.text = when {
+            description.startsWith("Starting autonomous") -> "Agent cancelled. Completed safe passes may remain saved; an in-flight batch is rolled back and an unfinished new project is discarded."
+            description.startsWith("Starting AI build") -> "Build cancelled. Any in-flight batch is rolled back and an unfinished new project is discarded."
             description.startsWith("Applying") -> "Build cancellation requested. The operation batch will roll back; any staged new project will be discarded."
             description.startsWith("Restoring") -> "Rollback cancellation requested. If restoration had started, the original scene is being restored."
-            description.startsWith("Deleting") -> "Memory deletion cancelled. Local data may already be deleted; remote deletion status may be uncertain."
+            description.startsWith("Deleting") -> "Memory deletion cancelled. Some device-local data may already have been deleted."
             else -> "Planning cancelled. No plan was applied."
         }
     }
