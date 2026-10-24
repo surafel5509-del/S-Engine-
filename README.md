@@ -18,19 +18,23 @@
 | **Undo / Redo** | Snapshot-based history for every edit |
 | **Play mode** | Play / Pause / Step frame inside the editor; scene is restored when you stop (like Unity) |
 | **Rendering** | Textured sprites with flip, UV animation, editable normalized pivots, text, custom shaders, and sorting |
-| **Physics 2D** | Fixed-step rigidbodies, oriented boxes & circles, gravity, friction/restitution, contact-point impulses, angular inertia/torque, optional rotation lock, triggers and grounded detection |
+| **2D lighting** | Ambient / point / spot / directional lights accumulated into an off-screen light map, soft radius and falloff, optional cookie textures, per-light intensity and colour |
+| **Camera rig** | Dead zone, velocity look-ahead, separate horizontal/vertical smoothing, vertical bias, pixel snapping, trauma-based shake with decay and bounds clamping |
+| **Physics 2D** | Fixed-step rigidbodies, oriented boxes & circles, terrain polylines and convex polygons, gravity, friction/restitution, contact-point impulses, tipping/leaning, angular inertia/torque, hinges, suspension wheels with motors, springs, distance joints, triggers and grounded detection |
+| **2D shapes & presets** | One-tap library of ready-made objects: bumpy terrain ridges, hills, cliffs, ramps, platforms, stacked crates, tipping beams, moving platforms, spikes, checkpoints, torches and more |
 | **Physics 3D** | Box/sphere rigidbodies, gravity, restitution/friction, raycasts, contact-point angular impulses and editable inertia/rotation lock |
 | **Particles** | Continuous or burst emitters with color/size curves, speed & size variance, gravity, drag, rotation/spin, textures and additive blending |
 | **Scripting** | JavaScript (ES6 subset via Rhino) with `start`, `update(dt)`, `onCollision`, `onTrigger`, `onTap`… plus timers, spawning, messaging, torque and impulses |
 | **Code editor** | Syntax highlighting, auto-indent, undo/redo, quick-symbol keyboard row, built-in API reference |
-| **Assets & animation** | Import images/sounds, edit sprite-sheet clips, set frame rate/order/loop and per-clip pivot in the Sprite & Animation Editor |
+| **Sprite Studio** | Full pixel-art and character editor: pencil / eraser / fill / line / rect / ellipse / colour picker, brush size and hardness, frame reel with onion skin and playback, image import into frames, **manual** background removal (paint the area you want gone), colour isolation (erase exactly one colour, in one layer or every frame), a built-in library of pre-made parts (heads, eyes, brows, hair, beards, hats, tops, shoes, car/motorcycle/bicycle wheels, lights, stars, coins, smoke) and PNG / sprite-sheet / `.anim` / `.sprite` export |
+| **Assets & animation** | Import images/sounds, bulk **`.zip` asset-pack import** with a reviewable plan, per-texture import settings (nearest/linear/trilinear, mipmaps, wrap mode, max size, power-of-two, anisotropic filtering), atlas packing, edit sprite-sheet clips, set frame rate/order/loop and per-clip pivot in the Sprite & Animation Editor |
 | **Audio** | `AudioSource` component + `audio.play()` / `audio.beep()` |
 | **Input & controllers** | Classic joystick/action buttons, drive pedals, optional calibrated phone-tilt steering/balance, touch, hardware keyboard & gamepad |
 | **Scenes** | Multiple scenes per project, start scene, `scene.load("Level2")` |
 | **Player** | Full-screen runtime ("Build & Run") with landscape / portrait setting |
 
 ### Built-in components
-`SpriteRenderer`, `TextRenderer`, `Camera` (size, background, follow target with smoothing), `Rigidbody2D`, `Collider2D`, `Script`, `ParticleEmitter`, `AudioSource`.
+`SpriteRenderer`, `TextRenderer`, `Camera` (size, background, follow target, full camera rig), `Light2D`, `Rigidbody2D`, `Collider2D` (box, circle, terrain line, convex polygon), `Joint2D`, `Script`, `ParticleEmitter`, `AudioSource`, `Camera3D`, `MeshRenderer`, `Light`, `Rigidbody3D`, `Collider3D`, `Animator`.
 
 ### Templates
 * **Empty 2D** – camera + square
@@ -38,6 +42,8 @@
 * **Space Shooter** *(2D)* – enemy waves, bullets, explosions, scoring and game-over flow
 * **Physics Sandbox** *(2D)* – drop rolling crates and bouncing balls into a ramp-and-wall arena
 * **3D Demo** – third-person movement, lights, models, pickups, raycasts and a tumbling angular crate
+* **Lumen Ascent** *(2D Pro)* – complete lit platformer: scripted player with coyote time and jump buffering, bumpy terrain, torch lighting, moving platforms, physics crates, a tipping beam, hazards, collectible stars and a HUD/menu flow
+* **Aurora Station** *(3D Pro)* – third-person exploration scene with a follow camera, sun and point lights, physics crates, orbiting shards, HUD and menu flow
 * **Hill Climb Racer** *(2D)* – spring-suspended 4×4, generated road, distinct Country/Desert/Frost/Moon stages, hazards, fuel, coins, garage upgrades, three rotating challenges and accelerometer balance controls. It is available from **New Project** and ships as the sample driving game.
 
 ---
