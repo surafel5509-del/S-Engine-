@@ -19,19 +19,16 @@ jobs:
         with:
           ref: main
           fetch-depth: 0
-      - name: Checkout exact Assets2 source branch
-        uses: actions/checkout@v4
-        with:
-          repository: surafel5509-del/Assets2
-          ref: arena/50d2e64e-assets2
-          path: _assets2_source
-          fetch-depth: 1
+      - name: Clone exact Assets2 source branch outside the target workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch 'arena/50d2e64e-assets2' https://github.com/surafel5509-del/Assets2.git "$RUNNER_TEMP/Assets2-source"
       - name: Replace target files with source project
         shell: bash
         run: |
           set -euo pipefail
-          rsync -a --delete --exclude='.git' _assets2_source/ ./
-          rm -rf _assets2_source
+          rsync -a --delete --exclude='.git' "$RUNNER_TEMP/Assets2-source/" ./
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add -A
