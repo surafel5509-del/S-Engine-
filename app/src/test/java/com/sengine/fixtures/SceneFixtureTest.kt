@@ -227,7 +227,14 @@ class SceneFixtureTest {
     @Test
     fun arena3dSceneSurvivesLoadSaveCycle() {
         val written = SceneSerializer.toJson(project().loadScene("Arena3D"))
-        assertJsonClose(fixtureJson("Arena3D"), written, "Arena3D")
+        val expected = fixtureJson("Arena3D")
+        // Studio adds two backward-compatible MeshRenderer defaults; all legacy values must still match.
+        val objects=expected.getJSONArray("objects")
+        for(i in 0 until objects.length())for(j in 0 until objects.getJSONObject(i).getJSONArray("components").length()){
+            val c=objects.getJSONObject(i).getJSONArray("components").getJSONObject(j)
+            if(c.optString("type")=="MeshRenderer"){if(c.has("Model (.obj)")){c.put("Model",c.get("Model (.obj)"));c.remove("Model (.obj)")};c.put("Material",c.optString("Material",""));c.put("Double Sided",c.optBoolean("Double Sided",false))}
+        }
+        assertJsonClose(expected, written, "Arena3D")
     }
 
     // ------------------------------------------------------------------ legacy scene

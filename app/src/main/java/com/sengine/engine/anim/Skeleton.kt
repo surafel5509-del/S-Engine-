@@ -35,13 +35,13 @@ object Quaternion {
         val sx = kotlin.math.sin(rx).toFloat(); val cx = kotlin.math.cos(rx).toFloat()
         val sy = kotlin.math.sin(ry).toFloat(); val cy = kotlin.math.cos(ry).toFloat()
         val sz = kotlin.math.sin(rz).toFloat(); val cz = kotlin.math.cos(rz).toFloat()
-        return floatArrayOf(sx*cy*cz-cx*sy*sz, cx*sy*cz+sx*cy*sz, cx*cy*sz-sx*sy*cz, cx*cy*cz-sx*sy*sz)
+        return floatArrayOf(sx*cy*cz-cx*sy*sz, cx*sy*cz+sx*cy*sz, cx*cy*sz-sx*sy*cz, cx*cy*cz+sx*sy*sz)
     }
     fun toEuler(value: FloatArray): FloatArray {
         val q = normalize(value); val (x,y,z,w) = q
         val sy = (2*(w*y-z*x)).coerceIn(-1f,1f)
         return if (abs(sy) > 0.99999f) floatArrayOf(0f, Math.toDegrees(kotlin.math.asin(sy.toDouble()).toDouble()).toFloat(), Math.toDegrees(kotlin.math.atan2(2*(w*z-x*y).toDouble(), 1-2*(y*y+z*z).toDouble())).toFloat())
-        else floatArrayOf(Math.toDegrees(kotlin.math.atan2(2*(w*x+y*z).toDouble(), 1-2*(x*x+y*y).toDouble())).toFloat(), Math.toDegrees(kotlin.math.asin(sy.toDouble())).toFloat(), Math.toDegrees(kotlin.math.atan2(2*(w*z+x*y).toDouble(), 1-2*(x*x+z*z).toDouble())).toFloat())
+        else floatArrayOf(Math.toDegrees(kotlin.math.atan2(2*(w*x+y*z).toDouble(), 1-2*(x*x+y*y).toDouble())).toFloat(), Math.toDegrees(kotlin.math.asin(sy.toDouble())).toFloat(), Math.toDegrees(kotlin.math.atan2(2*(w*z+x*y).toDouble(), 1-2*(y*y+z*z).toDouble())).toFloat())
     }
 }
 
@@ -50,6 +50,7 @@ data class Joint(var name: String, var parent: Int = -1,
     var rotation: FloatArray = floatArrayOf(0f,0f,0f,1f),
     var scale: FloatArray = floatArrayOf(1f,1f,1f),
     var inverseBind: FloatArray = Mat4.identity()) {
+    internal var hasExplicitInverseBind=false
     fun localMatrix() = compose(translation, rotation, scale)
     companion object {
         fun compose(t: FloatArray, r: FloatArray, s: FloatArray): FloatArray {
@@ -66,6 +67,11 @@ class Skeleton(val joints: List<Joint>) {
         require(joints.isNotEmpty() && joints.size <= MAX_JOINTS) { "Skeleton must have 1–$MAX_JOINTS joints" }
         require(joints.map { it.name }.distinct().size == joints.size) { "Joint names must be unique" }
         joints.forEachIndexed { i, j -> require(j.parent in -1 until i) { "Joint parents must precede children: ${j.name}" } }
+    }
+    init {
+        // Omitted inverse binds (native clips/editor rigs) are derived from the rest pose.
+        val pose=SkeletonPose(this);val world=worldMatrices(pose)
+        joints.forEachIndexed{i,j->if(!j.hasExplicitInverseBind){val inv=Mat4.identity();require(Mat4.invert(inv,world[i])){"Singular rest joint transform"};j.inverseBind=inv}}
     }
     fun restPose() = SkeletonPose(this)
     fun worldMatrices(pose: SkeletonPose): Array<FloatArray> {
@@ -99,7 +105,7 @@ class Skeleton(val joints: List<Joint>) {
             Joint(j.getString("name"),j.optInt("parent",-1),floats("translation",3,0f),
                 Quaternion.normalize(floats("rotation",4,0f)),floats("scale",3,1f),floats("inverseBind",16,0f).also {
                     for (k in 0..3) it[k*4+k] = if (j.has("inverseBind")) it[k*4+k] else 1f
-                })
+                }).also { it.hasExplicitInverseBind = j.has("inverseBind") }
         })
     }
 }
@@ -155,6 +161,7 @@ data class AnimationEvent(val time: Float, val name: String)
 class SkeletalClip(val name: String, val tracks: List<AnimationTrack>, val duration: Float, val events: List<AnimationEvent> = emptyList()) {
     init { require(duration.isFinite() && duration > 0f) { "Clip duration must be positive" }; require(tracks.isNotEmpty()) }
     fun sample(skeleton: Skeleton, time: Float, out: SkeletonPose = SkeletonPose(skeleton)): SkeletonPose {
+        for(i in skeleton.joints.indices){System.arraycopy(skeleton.joints[i].translation,0,out.translation[i],0,3);System.arraycopy(skeleton.joints[i].rotation,0,out.rotation[i],0,4);System.arraycopy(skeleton.joints[i].scale,0,out.scale[i],0,3)}
         for (track in tracks) {
             require(track.joint in skeleton.joints.indices) { "Clip targets a missing joint" }
             val target = when(track.path) { "translation" -> out.translation[track.joint]; "scale" -> out.scale[track.joint]; else -> out.rotation[track.joint] }

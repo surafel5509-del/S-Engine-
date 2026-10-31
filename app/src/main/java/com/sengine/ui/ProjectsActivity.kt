@@ -181,7 +181,7 @@ class ProjectsActivity : AppCompatActivity() {
         box.addView(name, lp(MATCH, WRAP).margins(0, dp(4), 0, dp(12)))
         box.addView(label("Template", 12f, C.DIM))
         val group = RadioGroup(this)
-        val catalog=ScrollView(this).apply{addView(group);maxHeight=dp(330)}
+        val catalog=ScrollView(this).apply{addView(group);layoutParams=LinearLayout.LayoutParams(MATCH,dp(330))}
         Templates.all.forEachIndexed { i, t ->
             group.addView(RadioButton(this).apply {
                 id = 1000 + i

@@ -60,6 +60,10 @@ class SkeletalAnimationSystem(private val project:Project,val models:ModelStore)
                 if(t>=1f)a.fadePose=null
             }
         }
+        if(c==null)pose.copyFrom(skeleton.restPose())
+        // Procedural local-channel overrides are applied after clip blending, never serialized.
+        a.boneRotations.forEach{(name,q)->val i=skeleton.joints.indexOfFirst{it.name==name};if(i>=0)System.arraycopy(q,0,pose.rotation[i],0,4)}
+        a.bonePositions.forEach{(name,t)->val i=skeleton.joints.indexOfFirst{it.name==name};if(i>=0)System.arraycopy(t,0,pose.translation[i],0,3)}
         skeleton.palette(pose,a.palette)
         return true
     }

@@ -32,6 +32,11 @@ object GltfImporter {
         return readInput(bytes) { null }.json
     }
 
+    fun import(project:Project,fileName:String,input:java.io.InputStream):Result {
+        val out=java.io.ByteArrayOutputStream();val buffer=ByteArray(8192);var total=0L
+        while(true){val n=input.read(buffer);if(n<0)break;total+=n;require(total<=MAX_INPUT){"glTF input exceeds 32 MB"};out.write(buffer,0,n)}
+        return import(project,fileName,out.toByteArray())
+    }
     fun import(project: Project, fileName: String, bytes: ByteArray, external: (String) -> ByteArray? = { project.readAssetBytes(it) }): Result {
         require(fileName.endsWith(".gltf",true) || fileName.endsWith(".glb",true)) { "Choose a .glb or .gltf model" }
         val input = readInput(bytes,external)
@@ -61,9 +66,13 @@ object GltfImporter {
             val buffer = buffers.getOrNull(view.getInt("buffer")) ?: error("Invalid buffer reference")
             val stride = view.optInt("byteStride",size*width)
             require(stride >= size*width) { "Invalid accessor stride" }
-            val offset = view.optInt("byteOffset")+a.optInt("byteOffset")
-            require(offset >= 0 && offset+(count-1).coerceAtLeast(0)*stride+size*width <= view.optInt("byteLength")) { "Accessor exceeds buffer view" }
-            require(view.getInt("byteOffset")+offset-a.optInt("byteOffset",0)+0 <= buffer.size)
+            val viewOffset=view.optInt("byteOffset",0);val accessorOffset=a.optInt("byteOffset",0)
+            val viewLength=view.getInt("byteLength");val bufferLength=buffers[view.getInt("buffer")].size
+            require(viewOffset>=0 && viewLength>0 && viewOffset+viewLength<=bufferLength){"Invalid glTF buffer view"}
+            require(accessorOffset>=0 && accessorOffset%width==0 && stride%width==0){"Unaligned glTF accessor"}
+            val offset = viewOffset+accessorOffset
+            require(accessorOffset+(count-1).coerceAtLeast(0)*stride+size*width <= viewLength) { "Accessor exceeds buffer view" }
+            require(offset+(count-1).coerceAtLeast(0)*stride+size*width <= buffer.size)
             return Accessor(ByteBuffer.wrap(buffer).order(ByteOrder.LITTLE_ENDIAN),offset,stride,count,size,type,a.optBoolean("normalized"))
         }
         fun values(index: Int): FloatArray = accessor(index).read()
@@ -130,8 +139,13 @@ object GltfImporter {
             materialNames[index]?.let{return it}
             val m=materials.getJSONObject(index); val p=m.optJSONObject("pbrMetallicRoughness") ?: JSONObject()
             val factor=p.optJSONArray("baseColorFactor")?.let(::valuesOf) ?: floatArrayOf(1f,1f,1f,1f)
-            val color=Component.parseColor(Material.hex((factor.sliceArray(0..3).mapIndexed { i,v -> ((v.coerceIn(0f,1f)*255).toInt()) shl when(i){0->24;1->16;2->8;else->0} }.fold(0){a,b->a or b})))
-            val out=Material(name=m.optString("name","Material $index"),baseColor=color,
+            require(factor.size==4 && factor.all{it.isFinite()}){"Invalid base color factor"}
+            // glTF factors are linear; material colors are stored as sRGB (alpha stays linear).
+            val srgb=factor.map{it.coerceIn(0f,1f).toDouble()}.toDoubleArray()
+            for(k in 0..2)srgb[k]=if(srgb[k]<=0.0031308)srgb[k]*12.92 else 1.055*Math.pow(srgb[k],1.0/2.4)-0.055
+            val color=Material.hex((srgb.map{Math.round(it*255).toInt()}.let{it[3].shl(24) or it[0].shl(16) or it[1].shl(8) or it[2]}))
+            val parsedColor=Component.parseColor(color)
+            val out=Material(name=m.optString("name","Material $index"),baseColor=parsedColor,
                 metallic=p.optDouble("metallicFactor",1.0).toFloat(),roughness=p.optDouble("roughnessFactor",1.0).toFloat(),
                 baseColorMap=p.optJSONObject("baseColorTexture")?.let{texture(it.getInt("index"))} ?: "",
                 normalMap=m.optJSONObject("normalTexture")?.let{texture(it.getInt("index"))} ?: "",
@@ -204,8 +218,19 @@ object GltfImporter {
                         val n=if(nrm.any{it!=0f})normalize(if(rig!=null)nrm.copyOfRange(o,o+3) else Mat4.dir(normal,nrm[o],nrm[o+1],nrm[o+2])) else floatArrayOf(0f,1f,0f)
                         data.set(v*8,point[0]);data[v*8+1]=point[1];data[v*8+2]=point[2];data[v*8+3]=n[0];data[v*8+4]=n[1];data[v*8+5]=n[2]
                         data[v*8+6]=uv[v*2];data[v*8+7]=uv[v*2+1]
-                        if(skin!=null){var sum=0f;for(k in 0..3)sum+=weights!![v*4+k].coerceAtLeast(0f);if(sum<=0f){weights!![v*4]=1f;sum=1f}
-                            for(k in 0..3){skin[v*8+k]=joints!![v*4+k];skin[v*8+4+k]=weights!![v*4+k].coerceAtLeast(0f)/sum}}
+                        if(skin!=null){
+                            var sum=0f
+                            for(k in 0..3){
+                                val sourceIndex=joints!![v*4+k].toInt()
+                                require(sourceIndex in jointOrder.indices) { "Invalid joint index" }
+                                val mapped=jointOrder.indexOf(sourceIndex)
+                                require(mapped>=0) { "Vertex references a joint outside its skin" }
+                                joints[v*4+k]=mapped.toFloat()
+                                sum+=weights!![v*4+k].coerceAtLeast(0f)
+                            }
+                            if(sum<=0f){weights!![v*4]=1f;sum=1f}
+                            for(k in 0..3){skin[v*8+k]=joints!![v*4+k];skin[v*8+4+k]=weights!![v*4+k].coerceAtLeast(0f)/sum}
+                        }
                     }
                     if(nrm.none{it!=0f})for(o in data.indices step 24){val n=faceNormal(data,o);for(k in 0..2){data[o+k*8+3]=n[0];data[o+k*8+4]=n[1];data[o+k*8+5]=n[2]}}
                     val indices=p.optInt("indices",-1).takeIf{it>=0}?.let(::accessor)
@@ -254,7 +279,8 @@ object GltfImporter {
     private class Accessor(val buffer:ByteBuffer,val offset:Int,val stride:Int,val count:Int,val size:Int,val type:Int,val normalized:Boolean){
         fun read()=FloatArray(count*size){i->
             val at=offset+(i/size)*stride+(i%size)*when(type){5120,5121->1;5122,5123->2;else->4}
-            require(at+4<=buffer.capacity())
+            val width=when(type){5120,5121->1;5122,5123->2;else->4}
+            require(at+width<=buffer.capacity())
             val v:Float=when(type){5120->buffer.get(at).toFloat();5121->buffer.get(at).toInt().and(255).toFloat();5122->buffer.getShort(at).toFloat();5123->buffer.getShort(at).toInt().and(65535).toFloat();5125->buffer.getInt(at).toLong().and(0xffffffffL).toFloat();else->buffer.getFloat(at)}
             val out=if(normalized)when(type){5121->v/255f;5123->v/65535f;5120->(v/127f).coerceAtLeast(-1f);5122->(v/32767f).coerceAtLeast(-1f);else->v}else v
             require(out.isFinite()){"Non-finite glTF accessor value"};out
@@ -286,7 +312,7 @@ object GltfImporter {
         if(uri.startsWith("data:")){val comma=uri.indexOf(',');require(comma>0 && uri.substring(0,comma).endsWith(";base64"));return Base64.getDecoder().decode(uri.substring(comma+1))}
         require(!uri.contains("://") && !uri.startsWith("/") && !uri.split('/').contains("..")){"Only embedded or project-relative resources are allowed: $uri"}
         val clean=java.net.URLDecoder.decode(uri,"UTF-8")
-        require(clean.split('/').none{it==".."||it.isEmpty()})
+        require(!clean.startsWith("/") && !clean.contains("\\") && clean.split('/').none{it==".."||it.isEmpty()})
         return input.resolve(clean)?:error("Missing model resource '$clean'. Import a self-contained GLB, or import its ZIP with the buffer and textures.")
     }
 }

@@ -73,12 +73,7 @@ class Project(val dir: File) {
             } catch (_: Exception) { JSONObject() }
             data.put(key, value ?: JSONObject.NULL)
             dir.mkdirs()
-            val temp = File(dir, ".sengine_user_data.tmp")
-            temp.writeText(data.toString())
-            if (!temp.renameTo(userDataFile)) {
-                userDataFile.writeText(data.toString())
-                temp.delete()
-            }
+            AtomicFiles.writeText(userDataFile,data.toString())
         }
     }
 

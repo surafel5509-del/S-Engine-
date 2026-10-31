@@ -98,10 +98,16 @@ class MaterialEditorActivity : AppCompatActivity() {
         val row=hbox();val value=label("%.2f".format(get()),12f,C.DIM);row.addView(label(title,13f,C.TEXT),lp(0,WRAP,1f));row.addView(value,lp(dp(52),WRAP));parent.addView(row)
         parent.addView(SeekBar(this).apply{this.max=1000;progress=((get()-min)/(max-min)*1000).toInt().coerceIn(0,1000);setOnSeekBarChangeListener(object:SeekBar.OnSeekBarChangeListener{override fun onProgressChanged(s:SeekBar?,p:Int,user:Boolean){if(user){set(min+(max-min)*p/1000f);value.text="%.2f".format(get());changed()}}override fun onStartTrackingTouch(s:SeekBar?){}override fun onStopTrackingTouch(s:SeekBar?){}})},lp(MATCH,WRAP))
     }
-    private fun choiceRow(parent:LinearLayout,title:String,options:List<String>,get:()->Int,set:(Int)->Unit){val b=button("$title: ${options[get()]}",C.PANEL2){MaterialAlertDialogBuilder(this).setItems(options.toTypedArray()){_,i->set(i);b.text="$title: ${options[i]}";changed()}.show()};parent.addView(b,lp(MATCH,WRAP).margins(0,dp(6),0,dp(6)))}
+    private fun choiceRow(parent:LinearLayout,title:String,options:List<String>,get:()->Int,set:(Int)->Unit){
+        lateinit var b:TextView
+        b=button("$title: ${options[get().coerceIn(options.indices)]}",C.PANEL2){
+            MaterialAlertDialogBuilder(this).setItems(options.toTypedArray()){_,i->set(i);b.text="$title: ${options[i]}";changed()}.show()
+        }
+        parent.addView(b,lp(MATCH,WRAP).margins(0,dp(6),0,dp(6)))
+    }
     private fun check(parent:LinearLayout,title:String,value:Boolean,set:(Boolean)->Unit){parent.addView(CheckBox(this).apply{text=title;isChecked=value;setTextColor(C.TEXT);setOnCheckedChangeListener{_,v->set(v)}})}
     override fun onResume(){super.onResume();if(::gl.isInitialized)gl.onResume()}
     override fun onPause(){if(::gl.isInitialized)gl.onPause();super.onPause()}
-    override fun onDestroy(){if(::project.isInitialized)project.materials().preview(asset,null);super.onDestroy()}
+    override fun onDestroy(){if(::project.isInitialized)project.materials().preview(asset,null);if(::engine.isInitialized)engine.release();super.onDestroy()}
     @Deprecated("Back dispatcher") override fun onBackPressed(){if(dirty)MaterialAlertDialogBuilder(this).setTitle("Unsaved material").setPositiveButton("Save & exit"){_,_->save();finish()}.setNegativeButton("Discard"){_,_->finish()}.setNeutralButton("Cancel",null).show()else super.onBackPressed()}
 }

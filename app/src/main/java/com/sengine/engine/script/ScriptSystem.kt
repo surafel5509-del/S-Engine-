@@ -22,7 +22,7 @@ class ScriptSystem(val engine:Engine,private val enabled:Boolean=true):PhysicsWo
     }
     private var cx:Context?=null;private var global:ScriptableObject?=null;private var ownerThread:Thread?=null
     private val instances=ArrayList<Instance>();private val wrappers=HashMap<Long,SObject>()
-    private val compiled=HashMap<String,Pair<String,Script?>>();private val modules=HashMap<String,Scriptable>()
+    private val compiled=HashMap<String,Pair<String,Script?>>();private val modules=HashMap<String,Any?>()
     private val loadingModules=HashSet<String>();private var active:Instance?=null;private var callDepth=0
     private var callStart=0L;private var spawnedThisFrame=0
     private val inputApi=SInput(engine)
@@ -151,7 +151,7 @@ class ScriptSystem(val engine:Engine,private val enabled:Boolean=true):PhysicsWo
     /** Project-contained CommonJS modules. Cache is per play session; circular imports fail clearly. */
     internal fun require(from:String,path:String):Any?{
         val c=cx?:error("require() is available while playing");val g=global?:error("Runtime unavailable")
-        val base=File(from).parentFile?:File("")
+        val base=File(from).parentFile?.takeIf{it.path.isNotEmpty()}?:File(".")
         val file=File(base,path).normalize()
         require(!file.isAbsolute && !file.path.startsWith("..")){"require() cannot escape project assets"}
         val name=file.path.replace('\\','/')
@@ -164,7 +164,7 @@ class ScriptSystem(val engine:Engine,private val enabled:Boolean=true):PhysicsWo
             val exports=c.newObject(scope);put(scope,"exports",exports)
             val module=c.newObject(scope);ScriptableObject.putProperty(module,"exports",exports);put(scope,"module",module);put(scope,"require",ModuleRequire(this,name))
             val compiled=c.compileString(f.readText(),name,1,null);compiled.exec(c,scope)
-            val result=ScriptableObject.getProperty(module,"exports");modules[name]=result as? Scriptable ?: c.newObject(scope).also{put(it,"value",result)};return modules[name]
+            val result=ScriptableObject.getProperty(module,"exports");modules[name]=result;return result
         }finally{loadingModules.remove(name)}
     }
     private class ModuleRequire(val sys:ScriptSystem,val from:String):BaseFunction(){

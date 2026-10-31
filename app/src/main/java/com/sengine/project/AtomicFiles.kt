@@ -2,6 +2,8 @@ package com.sengine.project
 
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.StandardCopyOption
 
 /** Replace documents only after a complete, flushed write. Existing valid files survive failures. */
 object AtomicFiles {
@@ -12,9 +14,9 @@ object AtomicFiles {
         val temp = File.createTempFile(".sengine-", ".tmp", parent)
         try {
             FileOutputStream(temp).use { out -> out.write(bytes); out.fd.sync() }
-            if (file.exists() && !file.delete()) {
-                if (!temp.renameTo(file)) throw java.io.IOException("Could not replace ${file.name}")
-            } else if (!temp.renameTo(file)) throw java.io.IOException("Could not save ${file.name}")
+            // POSIX rename replaces the directory entry in one operation. Never delete the
+            // previous valid document first: a failed replacement must leave it readable.
+            Files.move(temp.toPath(), file.toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
         } finally { temp.delete() }
     }
 }

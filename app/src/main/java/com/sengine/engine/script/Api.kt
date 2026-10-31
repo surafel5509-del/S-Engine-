@@ -125,13 +125,18 @@ class SObject(private val go: GameObject, private val engine: Engine, private va
         play(clip)
     }
     fun setBoneRotation(name: String, x: Double, y: Double, z: Double): Boolean {
-        val animator = go.getAny<com.sengine.engine.core.SkeletalAnimator>() ?: return false
-        val pose = animator.pose ?: return false
-        val index = pose.skeleton.joints.indexOfFirst { it.name == name }
-        if (index < 0) return false
-        val q=com.sengine.engine.anim.Quaternion.fromEuler(x.toFloat(),y.toFloat(),z.toFloat()); System.arraycopy(q,0,pose.rotation[index],0,4)
-        return true
+        val animator=go.getAny<com.sengine.engine.core.SkeletalAnimator>()?:return false
+        val pose=animator.pose?:return false;val index=pose.skeleton.joints.indexOfFirst{it.name==name};if(index<0)return false
+        val q=com.sengine.engine.anim.Quaternion.fromEuler(x.toFloat(),y.toFloat(),z.toFloat())
+        animator.boneRotations[name]=q;System.arraycopy(q,0,pose.rotation[index],0,4);return true
     }
+    fun setBonePosition(name:String,x:Double,y:Double,z:Double):Boolean {
+        val animator=go.getAny<com.sengine.engine.core.SkeletalAnimator>()?:return false
+        val pose=animator.pose?:return false;val index=pose.skeleton.joints.indexOfFirst{it.name==name};if(index<0)return false
+        val t=floatArrayOf(x.toFloat(),y.toFloat(),z.toFloat());require(t.all{it.isFinite()}){"Bone position must be finite"}
+        animator.bonePositions[name]=t;System.arraycopy(t,0,pose.translation[index],0,3);return true
+    }
+    fun clearBoneOverrides(){go.getAny<com.sengine.engine.core.SkeletalAnimator>()?.also{it.boneRotations.clear();it.bonePositions.clear()}}
     fun getBonePosition(name: String): Any? {
         val animator = go.getAny<com.sengine.engine.core.SkeletalAnimator>() ?: return null
         val pose = animator.pose ?: return null

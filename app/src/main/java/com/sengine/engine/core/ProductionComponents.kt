@@ -22,6 +22,8 @@ class SkeletalAnimator : Component() {
     @Transient var palette = FloatArray(0)
     @Transient var activeClip: SkeletalClip? = null
     @Transient var editorClip: SkeletalClip? = null
+    @Transient val boneRotations = LinkedHashMap<String,FloatArray>()
+    @Transient val bonePositions = LinkedHashMap<String,FloatArray>()
     @Transient var fadePose: SkeletonPose? = null
     @Transient var fadeElapsed = 0f
     @Transient var fadeDuration = 0f
@@ -42,7 +44,7 @@ class SkeletalAnimator : Component() {
     override fun resetRuntime() {
         current = clip; time = 0f; playing = playOnStart; finished = false
         pose = null; activeClip = null; fadePose = null; fadeElapsed = 0f; fadeDuration = 0f
-        requestedClip = null; restart = false; lastStamp = ""; editorClip = null
+        requestedClip = null; restart = false; lastStamp = ""; editorClip = null; boneRotations.clear(); bonePositions.clear()
     }
     fun request(name: String, fade: Float = crossfade) {
         requestedClip = name; requestedFade = fade.coerceIn(0f,2f); restart = true; finished = false
