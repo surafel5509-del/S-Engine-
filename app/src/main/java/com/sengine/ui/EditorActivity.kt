@@ -70,6 +70,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
 
     private lateinit var glView: GLSurfaceView
     private lateinit var controller: ViewportController
+    private lateinit var sceneRenderer: SceneRenderer
     private lateinit var inspector: InspectorPanel
     private lateinit var hierarchy: HierarchyAdapter
     private lateinit var controls: GameControlsView
@@ -163,13 +164,13 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                 state.view.size = (cam.getAny<Camera2D>()!!.size * 1.3f)
             } else state.view.size = 6f
         }
-        val auto3D = synchronized(engine.lock) { engine.mainCamera3D() != null && engine.mainCamera() == null }
+        val auto3D = project.dimension == "3d" || synchronized(engine.lock) { engine.mainCamera3D() != null && engine.mainCamera() == null }
         if (intent.getBooleanExtra("mode3d", false) || auto3D) toggle3D()
         refreshHierarchy()
         inspector.rebuild()
         refreshAssets()
         updateModeUi()
-        appendConsole(0, "S Engine Ultimate 2.0 — project '${project.name}', scene '${scene.name}'")
+        appendConsole(0, "S Engine Studio 3.0 — project '${project.name}', scene '${scene.name}'")
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -183,6 +184,8 @@ class EditorActivity : AppCompatActivity(), EditorHost {
     override fun onResume() {
         super.onResume()
         reloadExternalSceneIfChanged()
+        project.reloadMaterials()
+        glView.queueEvent { sceneRenderer.invalidateTextureSettings() }
         glView.onResume()
         engine.log(0, "Activity resumed: GL surface resumed")
         if (project.controlScheme == "driveTilt") tiltInput?.start()
@@ -291,7 +294,8 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         val vp = FrameLayout(this)
         glView = GLSurfaceView(this).apply {
             GlSurface.install(this) { engine.log(0, it) }
-            setRenderer(SceneRenderer(engine, state))
+            sceneRenderer = SceneRenderer(engine, state)
+            setRenderer(sceneRenderer)
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
         controller = ViewportController(this, engine, state)
@@ -329,6 +333,8 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         tabs.addView(View(this), lp(0, 1, 1f))
         assetButtons = hbox()
         assetButtons.addView(button("+ Script") { newScriptDialog { refreshAssets(); openScript(it) } }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
+        assetButtons.addView(button("+ Material", C.PANEL2) { newMaterialDialog() }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
+        assetButtons.addView(button("Skeleton") { openSkeletalEditor() }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
         assetButtons.addView(button("🛒 Store") { startActivity(Intent(this, AssetStoreActivity::class.java).putExtra("project", project.name)) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
         assetButtons.addView(button("+ Blueprint") { newAssetDialog("New Blueprint", "NewBlueprint", "bp", { com.sengine.engine.blueprint.Blueprint.defaultGraph().toJson().toString(2) }) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
         assetButtons.addView(button("+ Shader") { newAssetDialog("New Shader", "NewShader", "glsl", { Templates.NEW_SHADER }) }.apply { textSize = 12f }, lp(WRAP, WRAP).margins(dp(2), 0, dp(2), 0))
@@ -420,7 +426,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
 
     override fun openScript(name: String) {
         when (AssetKind.of(name)) {
-            AssetKind.ANIMATION -> openAnimationEditor(name)
+            AssetKind.ANIMATION -> if(name.endsWith(".skanim")) openSkeletalEditor(name) else openAnimationEditor(name)
             else -> if (name.endsWith(".bp")) startActivity(Intent(this, BlueprintEditorActivity::class.java).putExtra("project", project.name).putExtra("asset", name))
                 else startActivity(Intent(this, ScriptEditorActivity::class.java).putExtra("project", project.name).putExtra("asset", name))
         }
@@ -682,7 +688,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                 t == "Toggle Bottom Panel" -> toggle(bottomPanel)
                 t == "Script API Reference" -> showText("Script API", ScriptEditorActivity.API_DOC)
                 t.startsWith("About") -> showText("About S Engine",
-                    "S Engine Ultimate 2.0\n\nA 2D & 3D game engine and editor that runs entirely on your Android device.\n\n" +
+                    "S Engine Studio 3.0\n\nA 2D & 3D game engine and editor that runs entirely on your Android device.\n\n" +
                         "• 3D: meshes, OBJ models, Blinn-Phong lights, fog, sky, 3D physics, orbit editor\n" +
                         "• Sprite animation editor, asset store, visual blueprints, GLSL shaders & post FX\n" +
                         "• Build real installable APKs of your game\n" +
@@ -899,7 +905,8 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                 if (pixelBox.isChecked) settings.usePixelArt() else settings.pixelArt = false
                 store.set(name, settings)
                 project.saveTextureSettings()
-                toast("Texture settings saved. Reopen the scene to reload the texture.")
+                glView.queueEvent { sceneRenderer.invalidateTextureSettings() }
+                toast("Texture settings applied")
                 appendConsole(0, "Texture settings for $name: filter=${settings.filter} max=${settings.maxSize}")
             }
             .setNegativeButton("Cancel", null)
@@ -942,6 +949,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                 AssetKind.SOUND -> "♪" to C.GREEN
                 AssetKind.SHADER -> "GLSL" to 0xFFE040FB.toInt()
                 AssetKind.ANIMATION -> "▶▶" to 0xFFFF8A65.toInt()
+                AssetKind.MATERIAL -> "PBR" to 0xFF6BE7D0.toInt()
                 AssetKind.MODEL -> "3D" to 0xFF80CBC4.toInt()
                 else -> "?" to C.DIM
             }
@@ -965,14 +973,18 @@ class EditorActivity : AppCompatActivity(), EditorHost {
             }
             AssetKind.SOUND -> { pm.menu.add("Preview"); if (sel != null) pm.menu.add("Add AudioSource to ${sel.name}") }
             AssetKind.SHADER -> { pm.menu.add("Edit"); if (sel != null) pm.menu.add("Use shader on ${sel.name}") }
-            AssetKind.ANIMATION -> { pm.menu.add("Edit"); if (sel != null) pm.menu.add("Play on ${sel.name}") }
-            AssetKind.MODEL -> { pm.menu.add("Create 3D Model Object"); if (sel != null) pm.menu.add("Use model on ${sel.name}") }
+            AssetKind.ANIMATION -> { pm.menu.add("Edit"); if (sel != null) pm.menu.add("Play on ${sel.name}"); if(name.endsWith(".skanim"))pm.menu.add("Inspect / animate skeleton") }
+            AssetKind.MODEL -> { pm.menu.add("Create 3D Model Object"); if (sel != null) pm.menu.add("Use model on ${sel.name}"); if(name.endsWith(".smodel"))pm.menu.add("Inspect / animate skeleton") }
+            AssetKind.MATERIAL -> { pm.menu.add("Edit material"); if(sel!=null)pm.menu.add("Apply material to ${sel.name}") }
             null -> {}
         }
         pm.menu.add("Delete")
         pm.setOnMenuItemClickListener { item ->
             val t = item.title.toString()
             when {
+                t == "Edit material" -> startActivity(Intent(this,MaterialEditorActivity::class.java).putExtra("project",project.name).putExtra("asset",name))
+                t.startsWith("Apply material") && sel!=null -> { history.record(state.selectedId); synchronized(engine.lock){(sel.getAny<MeshRenderer>()?:sel.add(MeshRenderer())).material=name};inspector.rebuild();toast("Material assigned") }
+                t == "Inspect / animate skeleton" -> openSkeletalEditor(model=name)
                 t == "Edit" -> openScript(name)
                 t == "Preview" -> try {
                     android.media.MediaPlayer().apply {
@@ -1012,6 +1024,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                     }
                     inspector.rebuild()
                 }
+                sel != null && t.startsWith("Play on") && name.endsWith(".skanim") -> { history.record(state.selectedId);synchronized(engine.lock){(sel.getAny<com.sengine.engine.core.SkeletalAnimator>()?:sel.add(com.sengine.engine.core.SkeletalAnimator())).also{it.clip=name;it.model=sel.getAny<MeshRenderer>()?.model.orEmpty()}};inspector.rebuild() }
                 sel != null && t.startsWith("Play on") -> {
                     history.record(state.selectedId)
                     synchronized(engine.lock) {
@@ -1020,17 +1033,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                     }
                     inspector.rebuild()
                 }
-                t == "Create 3D Model Object" -> {
-                    history.record(state.selectedId)
-                    val go = synchronized(engine.lock) {
-                        val g = engine.scene.create(name.substringBeforeLast('.'))
-                        g.x = snap(state.orbitX); g.y = snap(state.orbitY); g.z = snap(state.orbitZ)
-                        g.add(MeshRenderer().also { it.mesh = MeshRenderer.MESHES.size - 1; it.model = name })
-                        g
-                    }
-                    if (!state.mode3D) toggle3D()
-                    refreshHierarchy(); select(go.id)
-                }
+                t == "Create 3D Model Object" -> createModelObject(name)
                 sel != null && t.startsWith("Use model") -> {
                     history.record(state.selectedId)
                     synchronized(engine.lock) {
@@ -1061,6 +1064,33 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         pm.show()
     }
 
+    private fun createModelObject(name:String){
+        history.record(state.selectedId)
+        val model=engine.models.get(name)
+        val go=synchronized(engine.lock){
+            val g=engine.scene.create(name.substringBeforeLast('.'));g.x=state.orbitX;g.y=state.orbitY;g.z=state.orbitZ
+            g.add(MeshRenderer().also{it.mesh=MeshRenderer.MESHES.size-1;it.model=name})
+            if(model?.skeleton!=null)g.add(com.sengine.engine.core.SkeletalAnimator().also{it.model=name;it.clip=model.clips.firstOrNull().orEmpty()})
+            g
+        }
+        if(!state.mode3D)toggle3D();refreshHierarchy();select(go.id)
+    }
+    private fun newMaterialDialog(){
+        val f=field("NewMaterial");val choices= listOf("Blank PBR")+com.sengine.project.Material.presets().map{it.name}
+        var preset=0
+        MaterialAlertDialogBuilder(this).setTitle("New reusable material").setView(f).setSingleChoiceItems(choices.toTypedArray(),0){_,i->preset=i}.setPositiveButton("Create"){_,_->
+            val n=f.text.toString().replace(Regex("[^A-Za-z0-9_-]"),"_").take(64)
+            if(n.isBlank()){toast("Invalid name");return@setPositiveButton}
+            val asset=project.uniqueAssetName("$n.mat");val mat=if(preset==0)com.sengine.project.Material(n)else com.sengine.project.Material.presets()[preset-1].copyMaterial()
+            project.materials().save(asset,mat);refreshAssets();showTab(1);startActivity(Intent(this,MaterialEditorActivity::class.java).putExtra("project",project.name).putExtra("asset",asset))
+        }.setNegativeButton("Cancel",null).show()
+    }
+    fun openSkeletalEditor(asset:String="",model:String=""){
+        saveScene(silent=true)
+        val selected=synchronized(engine.lock){engine.scene.findById(state.selectedId)}
+        val mr=selected?.getAny<MeshRenderer>()
+        startActivity(Intent(this,SkeletalEditorActivity::class.java).putExtra("project",project.name).putExtra("asset",asset.ifBlank{selected?.getAny<com.sengine.engine.core.SkeletalAnimator>()?.clip.orEmpty()}).putExtra("model",model.ifBlank{mr?.model.orEmpty()}))
+    }
     private fun importAsset(uri: Uri) {
         try {
             var display = "asset"
@@ -1077,17 +1107,24 @@ class EditorActivity : AppCompatActivity(), EditorHost {
                     mime.contains("ogg") -> ".ogg"
                     mime.contains("mpeg") || mime.contains("mp3") -> ".mp3"
                     mime.contains("wav") -> ".wav"
-                    importKind == AssetKind.MODEL -> ".obj"
+                    importKind == AssetKind.MODEL -> if((contentResolver.getType(uri)?:"").contains("gltf"))".gltf" else ".glb"
                     importKind == AssetKind.SOUND -> ".ogg"
                     else -> ".png"
                 }
             }
             n = project.uniqueAssetName(n)
             project.assetsDir.mkdirs()
-            contentResolver.openInputStream(uri)!!.use { input -> project.assetFile(n).outputStream().use { input.copyTo(it) } }
-            refreshAssets()
-            showTab(1)
-            toast("Imported $n")
+            if(n.endsWith(".glb",true)||n.endsWith(".gltf",true)){
+                glView.queueEvent { sceneRenderer.invalidateTextureSettings() }
+                val result=contentResolver.openInputStream(uri)!!.use{com.sengine.project.GltfImporter.import(project,n,it)}
+                refreshAssets();showTab(1)
+                MaterialAlertDialogBuilder(this).setTitle("Imported ${result.model}").setMessage("${result.vertices} vertices · ${result.joints} joints · ${result.materials.size} materials · ${result.clips.size} clips\n${result.warnings.joinToString("\n")}").setPositiveButton("Add to scene"){_,_->createModelObject(result.model)}.setNegativeButton("Done",null).show()
+            }else{
+                contentResolver.openInputStream(uri)!!.use { input -> project.assetFile(n).outputStream().use { input.copyTo(it) } }
+                refreshAssets()
+                showTab(1)
+                toast("Imported $n")
+            }
         } catch (e: Exception) {
             toast("Import failed: ${e.message}")
         }

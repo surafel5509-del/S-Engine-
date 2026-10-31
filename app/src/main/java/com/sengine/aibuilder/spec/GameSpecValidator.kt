@@ -9,22 +9,13 @@ import com.sengine.project.Templates
 object GameTemplateCatalog {
     data class Entry(val id: String, val name: String, val description: String, val dimension: GameDimension)
 
-    private val knownDimensions = mapOf(
-        "3d-demo" to GameDimension.THREE_D,
-        "aurora-station" to GameDimension.THREE_D,
-    )
+    private val aliases = mapOf("platformer-demo" to "neon-relay", "animated-platformer" to "neon-relay", "space-shooter" to "orbit-salvage", "hill-climb-racer" to "empty-2d", "3d-demo" to "sentinel-protocol", "aurora-station" to "sentinel-protocol", "physics-sandbox" to "empty-2d", "blueprint-demo" to "empty-2d")
+    fun canonicalId(id: String): String = aliases[id] ?: id
+    fun entries(): List<Entry> = Templates.all.map { template -> Entry(template.id, template.name, template.description, if(template.dimension == "3d") GameDimension.THREE_D else GameDimension.TWO_D) }
+    fun find(id: String): Entry? = entries().firstOrNull { it.id == canonicalId(id) }
+    fun template(id: String) = Templates.byId(canonicalId(id))
+    fun idFor(name: String): String = Templates.all.firstOrNull { it.name == name }?.id ?: name.lowercase().replace(Regex("[^a-z0-9]+"), "-").trim('-')
 
-    fun entries(): List<Entry> = Templates.all.map { template ->
-        val id = idFor(template.name)
-        Entry(id, template.name, template.description, knownDimensions[id] ?: GameDimension.TWO_D)
-    }
-
-    fun find(id: String): Entry? = entries().firstOrNull { it.id == id }
-    fun template(id: String) = Templates.all.firstOrNull { idFor(it.name) == id }
-
-    fun idFor(name: String): String = name.lowercase()
-        .replace(Regex("[^a-z0-9]+"), "-")
-        .trim('-')
 }
 
 /** Rejects unsupported features before any project or scene is modified. */
@@ -37,7 +28,7 @@ object GameSpecValidator {
         "ParticleEmitter", "AudioSource", "Animator",
     )
     private val components3D = setOf(
-        "MeshRenderer", "Camera3D", "Light", "Rigidbody3D", "Collider3D", "Script", "AudioSource",
+        "MeshRenderer", "Camera3D", "Light", "Rigidbody3D", "Collider3D", "Script", "AudioSource", "SkeletalAnimator",
     )
 
     fun validate(spec: GameSpec, selectedProjectName: String? = null): ValidationReport {

@@ -5,7 +5,7 @@ import com.sengine.engine.core.Scene
 import com.sengine.engine.core.Rigidbody2D
 import com.sengine.engine.physics.PhysicsWorld
 import com.sengine.project.Project
-import com.sengine.project.Templates
+import com.sengine.fixtures.legacy.LegacyTemplates
 import org.mozilla.javascript.Context
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -18,7 +18,7 @@ class HillClimbTemplateTest {
         val dir = Files.createTempDirectory("hillclimb").toFile()
         return Project(File(dir, "Hill Climb Racer")).also { p ->
             p.saveMeta()
-            Templates.all.first { it.name == "Hill Climb Racer" }.build(p)
+            LegacyTemplates.all.first { it.name == "Hill Climb Racer" }.build(p)
             p.saveMeta()
         }
     }

@@ -28,27 +28,27 @@ object DemoGamePlanner {
 
         val templateId = chooseTemplate(lower, preferredTemplateId)
         val entry = GameTemplateCatalog.find(templateId)
-            ?: GameTemplateCatalog.entries().firstOrNull { it.id == "platformer-demo" }
+            ?: GameTemplateCatalog.entries().firstOrNull { it.id == "neon-relay" }
             ?: error("No S Engine template is available")
         val template = Templates.all.first { GameTemplateCatalog.idFor(it.name) == entry.id }
         val projectName = uniqueName(template.name, existingProjectNames)
         val mechanics = when (entry.id) {
-            "hill-climb-racer" -> listOf("drive controls", "procedural terrain", "coins", "fuel", "hazards", "biome progression", "garage upgrades")
-            "platformer-demo" -> listOf("run and jump", "platform collision", "coin collection", "score HUD")
-            "space-shooter" -> listOf("touch/joystick movement", "shooting", "enemy waves", "score", "game over")
-            "3d-demo" -> listOf("3D character movement", "physics", "pickup triggers", "camera follow")
-            "animated-platformer" -> listOf("run and jump", "sprite-sheet animation", "coins", "enemy patrol")
-            "physics-sandbox" -> listOf("2D rigidbody physics", "bouncy objects", "tap-to-spawn")
-            "blueprint-demo" -> listOf("visual blueprint behaviors", "platform movement", "collectibles")
+            "empty-2d" -> listOf("drive controls", "procedural terrain", "coins", "fuel", "hazards", "biome progression", "garage upgrades")
+            "neon-relay" -> listOf("run and jump", "platform collision", "coin collection", "score HUD")
+            "orbit-salvage" -> listOf("touch/joystick movement", "shooting", "enemy waves", "score", "game over")
+            "sentinel-protocol" -> listOf("3D character movement", "physics", "pickup triggers", "camera follow")
+            "studio-lab" -> listOf("run and jump", "sprite-sheet animation", "coins", "enemy patrol")
+            "empty-2d" -> listOf("2D rigidbody physics", "bouncy objects", "tap-to-spawn")
+            "empty-2d" -> listOf("visual blueprint behaviors", "platform movement", "collectibles")
             else -> listOf("editable S Engine scene", "local template assets")
         }
         val genre = when (entry.id) {
-            "hill-climb-racer" -> "2D hill-climb driving"
-            "platformer-demo", "animated-platformer" -> "2D platformer"
-            "space-shooter" -> "2D shooter"
-            "3d-demo" -> "3D action adventure"
-            "physics-sandbox" -> "2D physics sandbox"
-            "blueprint-demo" -> "2D visual-scripting platformer"
+            "empty-2d" -> "2D hill-climb driving"
+            "neon-relay", "studio-lab" -> "2D platformer"
+            "orbit-salvage" -> "2D shooter"
+            "sentinel-protocol" -> "3D action adventure"
+            "empty-2d" -> "2D physics sandbox"
+            "empty-2d" -> "2D visual-scripting platformer"
             else -> "2D starter game"
         }
         val summary = "LOCAL DEMO PLAN — selected the installed '${template.name}' template. " +
@@ -167,14 +167,11 @@ object DemoGamePlanner {
     private fun chooseTemplate(prompt: String, preferred: String?): String {
         if (!preferred.isNullOrBlank() && preferred != "auto" && GameTemplateCatalog.find(preferred) != null) return preferred
         return when {
-            listOf("hill climb", "hill-climb", "climb car", "fuel", "racing", "racer", "driving").any { it in prompt } -> "hill-climb-racer"
-            listOf("3d", "three-dimensional", "third person", "3-d").any { it in prompt } -> "3d-demo"
-            listOf("shooter", "shooting", "space", "enemy wave", "bullets").any { it in prompt } -> "space-shooter"
-            listOf("physics", "bouncy", "sandbox").any { it in prompt } -> "physics-sandbox"
-            listOf("animation", "animated", "sprite sheet").any { it in prompt } -> "animated-platformer"
-            listOf("blueprint", "visual script", "no code").any { it in prompt } -> "blueprint-demo"
-            listOf("platformer", "jump", "platform", "coin").any { it in prompt } -> "platformer-demo"
-            else -> "platformer-demo"
+            listOf("animation", "skeleton", "material", "pbr", "lab").any { it in prompt } -> "studio-lab"
+            listOf("3d", "third person", "robot").any { it in prompt } -> "sentinel-protocol"
+            listOf("shooter", "space", "flight", "salvage").any { it in prompt } -> "orbit-salvage"
+            listOf("empty", "blank", "sandbox").any { it in prompt } -> if("3d" in prompt) "empty-3d" else "empty-2d"
+            else -> "neon-relay"
         }
     }
 

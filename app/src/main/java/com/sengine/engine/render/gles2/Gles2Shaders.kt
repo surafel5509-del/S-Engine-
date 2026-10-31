@@ -2,6 +2,7 @@ package com.sengine.engine.render.gles2
 
 import com.sengine.engine.render.api.ShaderDialect
 import com.sengine.engine.render.api.ShaderSourceSet
+import com.sengine.engine.render.api.PbrShader
 
 /**
  * GLSL ES 1.00 built-in shaders for the OpenGL ES 2.0 compatibility backend.
@@ -56,29 +57,48 @@ void main() {
 }
 """
 
-    override val meshVs = """
+    override val supportsGpuSkin = false
+    private fun meshVertex(skinned: Boolean) = """
 uniform mat4 uMVP;
 uniform mat4 uModel;
 uniform mat4 uNormalMat;
 attribute vec3 aPos;
 attribute vec3 aNormal;
 attribute vec2 aUV;
+attribute vec4 aTangent;
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying vec2 vUV;
+varying vec3 vTangent;
+varying float vTangentW;
+""" + (if(skinned && false) """uniform mat4 uBones[32];
+attribute vec4 aJoints;
+attribute vec4 aWeights;
+""" else "") + """
 void main() {
-  vWorld = (uModel * vec4(aPos, 1.0)).xyz;
-  vNormal = (uNormalMat * vec4(aNormal, 0.0)).xyz;
-  vUV = aUV;
-  gl_Position = uMVP * vec4(aPos, 1.0);
+  vec4 p=vec4(aPos,1.0); vec3 n=aNormal; vec3 t=aTangent.xyz;
+""" + (if(skinned && false) """
+  mat4 skin=uBones[int(aJoints.x)]*aWeights.x+uBones[int(aJoints.y)]*aWeights.y+uBones[int(aJoints.z)]*aWeights.z+uBones[int(aJoints.w)]*aWeights.w;
+  p=skin*p; n=mat3(skin)*n; t=mat3(skin)*t;
+""" else "") + """
+  vWorld=(uModel*p).xyz;
+  vNormal=normalize((uNormalMat*vec4(n,0.0)).xyz);
+  vTangent=normalize((uModel*vec4(t,0.0)).xyz); vTangentW=aTangent.w;
+  vUV=aUV; gl_Position=uMVP*p;
 }
 """
+    override val meshVs get() = meshVertex(false)
+    override val skinnedMeshVs get() = meshVertex(true)
 
     override fun meshFs(effect: String) = """
-precision mediump float;
+precision highp float;
+varying vec3 vTangent;
+varying float vTangentW;
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying vec2 vUV;
+varying vec3 vTangent;
+varying float vTangentW;
 uniform vec4 uColor;
 uniform sampler2D uTex;
 uniform float uUseTex;
@@ -98,13 +118,16 @@ uniform vec3 uFog;
 uniform float uTime;
 uniform float uParam;
 uniform vec2 uResolution;
+${PbrShader.functions}
 $effect
 void main() {
   vec4 base = uColor;
   vec2 uv = vUV * uTiling;
+  if(uPBR>0.5) uv=vUV*uUVTransform.xy+uUVTransform.zw;
   if (uUseTex > 0.5) base *= texture2D(uTex, uv);
+  if(uAlphaMode>0.5 && uAlphaMode<1.5 && base.a<uAlphaCutoff) discard;
   vec3 col = base.rgb;
-  if (uUnlit < 0.5) {
+  if (uUnlit < 0.5 && uPBR < 0.5) {
     vec3 n = normalize(vNormal);
     vec3 v = normalize(uCamPos - vWorld);
     vec3 l = normalize(-uDirDir);
@@ -125,7 +148,10 @@ void main() {
     }
     col = col * light + specular;
   }
-  col += base.rgb * uEmission;
+  if(uPBR>0.5) {
+    base.rgb=pow(max(base.rgb,vec3(0.0)),vec3(2.2));
+    ${PbrShader.lighting}
+  } else col += base.rgb * uEmission;
   if (uFog.z > 0.5) {
     float f = clamp((length(uCamPos - vWorld) - uFog.x) / max(uFog.y - uFog.x, 0.001), 0.0, 1.0);
     col = mix(col, uFogColor, f);

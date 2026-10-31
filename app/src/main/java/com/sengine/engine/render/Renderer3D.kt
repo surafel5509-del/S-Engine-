@@ -5,6 +5,7 @@ import com.sengine.engine.core.Light
 import com.sengine.engine.core.MeshRenderer
 import com.sengine.engine.core.Scene
 import com.sengine.engine.math.Mat4
+import com.sengine.project.Material
 import com.sengine.engine.render.api.ShaderSourceSet
 import java.nio.FloatBuffer
 import kotlin.math.sqrt
@@ -106,7 +107,7 @@ class Renderer3D {
         }
     }
 
-    fun drawMesh(mesh: Mesh, model: FloatArray, mr: MeshRenderer, tex: Tex?, program: MeshProgram?) {
+    fun drawMesh(mesh: Mesh, model: FloatArray, mr: MeshRenderer, tex: Tex?, program: MeshProgram?, material: Material? = null, maps: Map<String,Tex?> = emptyMap(), bones: FloatArray? = null) {
         val p = program ?: shaders.defaultMesh
         GLES20.glUseProgram(p.id)
         Mat4.mul(mvp, view.viewProj, model)
@@ -116,7 +117,9 @@ class Renderer3D {
         GLES20.glUniformMatrix4fv(p.uModel, 1, false, model, 0)
         GLES20.glUniformMatrix4fv(p.uNormalMat, 1, false, normalMat, 0)
         GLES20.glUniform4f(p.uColor, GL.r(mr.color), GL.g(mr.color), GL.b(mr.color), GL.a(mr.color))
-        GLES20.glUniform1f(p.uTiling, mr.tiling)
+        GLES20.glUniform1f(p.uTiling, if(material!=null) 1f else mr.tiling)
+        bindMaterial(p,material,maps)
+        if(bones!=null && p.uBones>=0) GLES20.glUniformMatrix4fv(p.uBones,bones.size/16,false,bones,0)
         GLES20.glUniform3f(p.uCamPos, view.eye[0], view.eye[1], view.eye[2])
         GLES20.glUniform3fv(p.uAmbient, 1, ambient, 0)
         GLES20.glUniform3fv(p.uDirDir, 1, dirDir, 0)
@@ -132,16 +135,8 @@ class Renderer3D {
         if (p.uTime >= 0) GLES20.glUniform1f(p.uTime, time)
         if (p.uParam >= 0) GLES20.glUniform1f(p.uParam, mr.shaderParam)
         if (p.uResolution >= 0) GLES20.glUniform2f(p.uResolution, resW, resH)
-        if (tex != null) {
-            GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex.id)
-            if (mr.tiling != 1f && isPot(tex.w) && isPot(tex.h)) {
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_REPEAT)
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_REPEAT)
-            }
-            GLES20.glUniform1i(p.uTex, 0)
-            GLES20.glUniform1f(p.uUseTex, 1f)
-        } else GLES20.glUniform1f(p.uUseTex, 0f)
+        bindTexture(p.uTex,0,tex)
+        GLES20.glUniform1f(p.uUseTex,if(tex!=null)1f else 0f)
         val b = mesh.buffer
         b.position(0)
         GLES20.glEnableVertexAttribArray(p.aPos)
@@ -156,12 +151,37 @@ class Renderer3D {
             GLES20.glEnableVertexAttribArray(p.aUV)
             GLES20.glVertexAttribPointer(p.aUV, 2, GLES20.GL_FLOAT, false, 32, b)
         }
+        bindOptional(p.aTangent,4,mesh.tangents)
+        if(bones!=null) { bindOptional(p.aJoints,4,mesh.skin); bindOptional(p.aWeights,4,mesh.skin,4) }
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, mesh.vertexCount)
+        for(loc in listOf(p.aTangent,p.aJoints,p.aWeights)) if(loc>=0) GLES20.glDisableVertexAttribArray(loc)
         GLES20.glDisableVertexAttribArray(p.aPos)
         if (p.aNormal >= 0) GLES20.glDisableVertexAttribArray(p.aNormal)
         if (p.aUV >= 0) GLES20.glDisableVertexAttribArray(p.aUV)
         drawCalls++
     }
 
+    private fun bindTexture(location:Int,unit:Int,tex:Tex?) {
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0+unit); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D,tex?.id ?: 0)
+        if(location>=0)GLES20.glUniform1i(location,unit)
+    }
+    private fun bindOptional(location:Int,size:Int,buffer:FloatBuffer?,offset:Int=0) {
+        if(location<0)return
+        if(buffer!=null){buffer.position(offset);GLES20.glEnableVertexAttribArray(location);GLES20.glVertexAttribPointer(location,size,GLES20.GL_FLOAT,false,size*4,buffer);buffer.position(0)}
+        else {GLES20.glDisableVertexAttribArray(location);GLES20.glVertexAttrib4f(location,0f,0f,0f,1f)}
+    }
+    private fun bindMaterial(p:MeshProgram,m:Material?,maps:Map<String,Tex?>) {
+        GLES20.glUniform1f(p.uPBR,if(m==null)0f else 1f)
+        if(m==null)return
+        GLES20.glUniform1f(p.uMetallic,m.metallic);GLES20.glUniform1f(p.uRoughness,m.roughness)
+        GLES20.glUniform1f(p.uNormalStrength,m.normalStrength);GLES20.glUniform1f(p.uAOStrength,m.occlusionStrength)
+        GLES20.glUniform1f(p.uAlphaMode,m.alphaMode.toFloat());GLES20.glUniform1f(p.uAlphaCutoff,m.alphaCutoff)
+        GLES20.glUniform4f(p.uUVTransform,m.tilingX,m.tilingY,m.offsetX,m.offsetY)
+        GLES20.glUniform3f(p.uEmissiveColor,GL.r(m.emissiveColor),GL.g(m.emissiveColor),GL.b(m.emissiveColor))
+        GLES20.glUniform1f(p.uEmissiveStrength,m.emissiveStrength)
+        val normal=maps[m.normalMap];val mr=maps[m.metallicRoughnessMap];val ao=maps[m.occlusionMap];val emission=maps[m.emissiveMap]
+        bindTexture(p.uNormalMap,1,normal);bindTexture(p.uMRMap,2,mr);bindTexture(p.uAOMap,3,ao);bindTexture(p.uEmissiveMap,4,emission)
+        GLES20.glUniform4f(p.uMapFlags,if(normal!=null)1f else 0f,if(mr!=null)1f else 0f,if(ao!=null)1f else 0f,if(emission!=null)1f else 0f)
+    }
     private fun isPot(n: Int) = n > 0 && (n and (n - 1)) == 0
 }

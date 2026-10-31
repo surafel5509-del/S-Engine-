@@ -15,7 +15,7 @@ import com.sengine.engine.core.SpriteRenderer
 import com.sengine.engine.core.TextRenderer
 import com.sengine.project.AssetLibrary
 import com.sengine.project.Project
-import com.sengine.project.Templates
+import com.sengine.fixtures.legacy.LegacyTemplates
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -31,7 +31,7 @@ class EngineV2Test {
         val dir = Files.createTempDirectory("sengine2").toFile()
         val p = Project(File(dir, "Test"))
         p.saveMeta()
-        Templates.all.first { it.name == name }.build(p)
+        LegacyTemplates.all.first { it.name == name }.build(p)
         p.saveMeta()
         return p
     }

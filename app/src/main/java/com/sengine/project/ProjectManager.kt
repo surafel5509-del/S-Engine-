@@ -55,11 +55,8 @@ object ProjectManager {
     fun exists(ctx: Context, name: String) = File(root(ctx), name).exists()
 
     fun create(ctx: Context, name: String, template: Templates.Template): Project {
-        val p = Project(File(root(ctx), name))
-        p.saveMeta()
-        template.build(p)
-        p.saveMeta()
-        return p
+        val safe = sanitize(name).ifBlank { throw IllegalArgumentException("Invalid project name") }
+        return createGenerated(ctx,safe,template) { it.templateId=template.id;it.dimension=template.dimension }
     }
 
     fun delete(p: Project) = p.dir.deleteRecursively()

@@ -50,6 +50,8 @@ class Engine(
     val physics = PhysicsWorld()
     val physics3D = com.sengine.engine.physics.PhysicsWorld3D()
     val animation = com.sengine.engine.anim.AnimationSystem(project)
+    val models = com.sengine.engine.render.ModelStore(project)
+    val skeletalAnimation = com.sengine.engine.anim.SkeletalAnimationSystem(project, models)
     val scripts = ScriptSystem(this, scriptsEnabled)
     val audio = AudioSystem(project, audioEnabled)
     val gameView = View2D()
@@ -78,6 +80,8 @@ class Engine(
     init {
         physics.listener = scripts
         physics3D.listener = scripts
+        skeletalAnimation.onEvent = { go, name -> scripts.sendMessage(go, "onAnimationEvent", name) }
+        skeletalAnimation.onLog = { log(2, it) }
     }
 
     // ---------------------------------------------------------------- commands
@@ -129,6 +133,7 @@ class Engine(
 
     private fun beginScene() {
         for (go in scene.objects) for (c in go.components) c.resetRuntime()
+        com.sengine.engine.script.SObject.clearOverrides(); skeletalAnimation.clear()
         physics.reset()
         physics3D.reset()
         audio.start()
@@ -199,6 +204,8 @@ class Engine(
         updateParticles(dt)
         updateAnimators(dt, true)
         decayShake(dt)
+        scripts.lateUpdate(dt)
+        scene.updateTransforms()
 
         val load = pendingSceneLoad
         if (load != null) {
@@ -220,6 +227,7 @@ class Engine(
         val dead = scene.objects.filter { it.destroyed || isUnderDestroyed(it) }
         for (d in dead) { d.destroyed = true; scripts.onDestroyed(d) }
         scene.objects.removeAll(dead.toSet())
+        dead.forEach { com.sengine.engine.script.SObject.runtimeMaterials.remove(it.id) }
         listeners.forEach { it.onSceneReplaced() }
     }
 
@@ -232,6 +240,12 @@ class Engine(
     fun mainCamera3D(): GameObject? = scene.objects.firstOrNull { it.isActiveInHierarchy() && it.get<com.sengine.engine.core.Camera3D>() != null }
 
     private fun updateAnimators(dt: Float, playing: Boolean) {
+        for (go in scene.objects.toList()) {
+            val a = go.getAny<com.sengine.engine.core.SkeletalAnimator>() ?: continue
+            if (!playing && !a.previewInEditor) continue
+            if (playing && !go.isActiveInHierarchy()) continue
+            skeletalAnimation.update(go, a, dt, playing)
+        }
         for (go in scene.objects) {
             val a = go.getAny<com.sengine.engine.core.Animator>() ?: continue
             val sr = go.getAny<com.sengine.engine.core.SpriteRenderer>() ?: continue

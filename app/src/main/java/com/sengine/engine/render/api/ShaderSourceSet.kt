@@ -14,7 +14,9 @@ interface ShaderSourceSet {
     val spriteVs: String
     fun spriteFs(effect: String): String
 
+    val supportsGpuSkin: Boolean
     val meshVs: String
+    val skinnedMeshVs: String
     fun meshFs(effect: String): String
 
     val postVs: String

@@ -454,6 +454,10 @@ class MeshRenderer : Component() {
     override val type = "MeshRenderer"
     var mesh = 0
     var model = ""
+    /** Reusable metallic/roughness material. Empty retains the legacy material properties below. */
+    var material = ""
+    var doubleSided = false
+    var castShadow = true
     var color = 0xFFD0D4DC.toInt()
     var texture = ""
     var tiling = 1f
@@ -466,7 +470,9 @@ class MeshRenderer : Component() {
 
     override fun props() = listOf(
         Prop.Choice("Mesh", MESHES, { mesh }, { mesh = it }),
-        Prop.Asset("Model (.obj)", AssetKind.MODEL, { model }, { model = it }),
+        Prop.Asset("Model", AssetKind.MODEL, { model }, { model = it }),
+        Prop.Asset("Material", AssetKind.MATERIAL, { material }, { material = it }),
+        Prop.B("Double Sided", { doubleSided }, { doubleSided = it }),
         Prop.Color("Color", { color }, { color = it }),
         Prop.Asset("Texture", AssetKind.TEXTURE, { texture }, { texture = it }),
         Prop.F("Tiling", { tiling }, { tiling = it.coerceAtLeast(0.01f) }),

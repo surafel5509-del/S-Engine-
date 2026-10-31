@@ -15,6 +15,8 @@ import com.sengine.engine.core.MeshRenderer
 import com.sengine.engine.core.ParticleEmitter
 import com.sengine.engine.core.SpriteRenderer
 import com.sengine.engine.core.TextRenderer
+import com.sengine.engine.script.SObject
+import com.sengine.project.Material
 import com.sengine.engine.math.Affine
 import com.sengine.engine.math.Mat4
 import com.sengine.engine.platform.android.GlInfo
@@ -46,6 +48,7 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
     private val lighting = Lighting2D()
     private val textures = TextureCache(engine.project).also { cache -> cache.onLog = { lvl, msg -> engine.log(lvl, msg) } }
     private val gameView3D = View3D()
+    private val cpuMeshes = HashMap<Long,Array<com.sengine.engine.render.Mesh>>()
     private val shakeView = View2D()
     private val uiView = View2D()
     private var lastNs = 0L
@@ -122,6 +125,8 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
         }
     }
 
+    fun invalidateTextureSettings() { textures.invalidateSettings() }
+
     private fun report(message: String, level: Int) {
         if (level >= 2) Log.e(GlSurface.TAG, message) else Log.i(GlSurface.TAG, message)
         engine.log(level, message)
@@ -159,7 +164,7 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
             r.resW = width.toFloat(); r.resH = height.toFloat(); r3.resW = r.resW; r3.resH = r.resH
             val editing = editor != null && engine.mode == Engine.Mode.EDIT
             val cam3 = engine.mainCamera3D()
-            val use3D = if (editing) editor!!.mode3D else cam3 != null
+            val use3D = if (editing) editor!!.mode3D else cam3 != null || (engine.project.dimension == "3d" && engine.mainCamera() == null)
 
             // post effect selection (play mode only)
             var postProg: PostProgram? = null
@@ -334,6 +339,7 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
             v = editor.view3D
         } else {
             v = gameView3D
+            if (cam == null) v.setOrbit(0f, 0.5f, 0f, 35f, 25f, 8f)
             if (cam != null && camGo != null) {
                 v.fov = cam.fov; v.near = cam.near; v.far = cam.far
                 val target = if (cam.lookAtTarget && cam.follow.isNotBlank()) scene.find(cam.follow)?.world3 else null
@@ -355,7 +361,7 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
         val transparent = ArrayList<Pair<Float, GameObject>>()
         for (go in objs) {
             val mr = go.get<MeshRenderer>() ?: continue
-            if (GL.a(mr.color) < 0.999f) { transparent.add(v.distanceTo(go.world3[12], go.world3[13], go.world3[14]) to go); continue }
+            if (isTransparent(mr)) { transparent.add(v.distanceTo(go.world3[12], go.world3[13], go.world3[14]) to go); continue }
             drawMesh(go, mr)
         }
         // transparent meshes, sprites, text & particles: back to front, no depth writes
@@ -376,18 +382,58 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
     }
 
-    private fun drawMesh(go: GameObject, mr: MeshRenderer) {
-        val mesh = if (mr.mesh == MeshRenderer.MESHES.size - 1) {
-            (if (mr.model.isNotBlank()) Meshes.model(engine.project.assetFile(mr.model)) else null) ?: Meshes.primitive(0)
-        } else Meshes.primitive(mr.mesh)
-        val tex = if (mr.texture.isNotBlank()) textures.image(mr.texture) else null
-        val prog = if (mr.shader.isNotBlank()) shaders.mesh(mr.shader) else null
-        r3.drawMesh(mesh, go.world3, mr, tex, prog)
+    private fun isTransparent(mr:MeshRenderer):Boolean {
+        val material=SObject.runtimeMaterials.get(materialOwner(mr)) ?: engine.project.materials().get(mr.material)
+        return material?.isTransparent ?: (GL.a(mr.color)<0.999f)
     }
+    private fun materialOwner(mr:MeshRenderer):Long = mr.gameObject.id
+    private fun drawMesh(go: GameObject, mr: MeshRenderer) {
+        val material=SObject.runtimeMaterials[go.id] ?: engine.project.materials().get(mr.material)
+        val effective=if(material!=null) mr.copyForRender(material) else mr
+        val maps=material?.textureNames?.associateWith{textures.image(it)}.orEmpty()
+        val model=if(mr.model.endsWith(".smodel"))engine.models.get(mr.model) else null
+        if(model!=null){
+            val animator=go.getAny<com.sengine.engine.core.SkeletalAnimator>()
+            if(model.parts.size > (cpuMeshes[go.id]?.size ?: 0)) cpuMeshes[go.id]=Array(model.parts.size){Mesh(FloatArray(8))}
+            model.parts.forEachIndexed { index, part ->
+                val assigned=material ?: engine.project.materials().get(part.material)
+                val partMr=mr.copyForRender(assigned ?: Material())
+                if(assigned==null){partMr.color=mr.color;partMr.texture=mr.texture;partMr.unlit=mr.unlit}
+                val partMaps=assigned?.textureNames?.associateWith{textures.image(it)}.orEmpty()
+                val skinned=part.skinned && model.skeleton!=null && animator?.pose!=null
+                val gpu=skinned && shaders.supportsGpuSkin && (model.skeleton?.joints?.size ?: 0)<=32
+                val mesh=if(skinned&&!gpu){
+                    val target=cpuMeshes[go.id]!![index]
+                    if(target.vertexCount!=part.mesh.vertexCount)cpuMeshes[go.id]!![index]=Mesh(FloatArray(part.mesh.vertexCount*8),null,FloatArray(part.mesh.vertexCount*4)).also{CpuSkinning.apply(part.mesh,animator!!.palette,it)}
+                    else CpuSkinning.apply(part.mesh,animator!!.palette,target)
+                    cpuMeshes[go.id]!![index]
+                }else part.mesh
+                val program=if(mr.shader.isNotBlank())shaders.mesh(mr.shader,gpu) else if(gpu)shaders.skinMesh else null
+                if(partMr.doubleSided)GLES20.glDisable(GLES20.GL_CULL_FACE)else GLES20.glEnable(GLES20.GL_CULL_FACE)
+                r3.drawMesh(mesh,go.world3,partMr,if(partMr.texture.isNotBlank())textures.image(partMr.texture)else null,program,assigned,partMaps,if(gpu)animator!!.palette else null)
+            }
+            GLES20.glEnable(GLES20.GL_CULL_FACE)
+            return
+        }
+        val mesh=if(mr.mesh==MeshRenderer.MESHES.size-1){
+            (if(mr.model.isNotBlank())Meshes.model(engine.project.assetFile(mr.model))else null)?:Meshes.primitive(0)
+        }else Meshes.primitive(mr.mesh)
+        val tex=if(effective.texture.isNotBlank())textures.image(effective.texture)else null
+        val prog=if(mr.shader.isNotBlank())shaders.mesh(mr.shader)else null
+        if(effective.doubleSided)GLES20.glDisable(GLES20.GL_CULL_FACE)else GLES20.glEnable(GLES20.GL_CULL_FACE)
+        r3.drawMesh(mesh,go.world3,effective,tex,prog,material,maps)
+        GLES20.glEnable(GLES20.GL_CULL_FACE)
+    }
+    private fun MeshRenderer.copyForRender(m:com.sengine.project.Material):MeshRenderer=MeshRenderer().also{
+        it.color=m.baseColor;it.texture=if(material.isNotBlank())"" else texture;it.tiling=tiling
+        it.unlit=m.unlit;it.emission=0f;it.specular=specular;it.shininess=shininess;it.doubleSided=m.doubleSided
+    }
+    private val Material.isTransparent get()=alphaMode==2 || (baseColor ushr 24)<255
 
     private fun meshBounds(go: GameObject): Pair<FloatArray, FloatArray> {
         val mr = go.get<MeshRenderer>()
         if (mr != null) {
+            engine.models.get(mr.model)?.let { return it.min to it.max }
             val mesh = if (mr.mesh == MeshRenderer.MESHES.size - 1) {
                 (if (mr.model.isNotBlank()) Meshes.model(engine.project.assetFile(mr.model)) else null) ?: Meshes.primitive(0)
             } else Meshes.primitive(mr.mesh)
@@ -457,6 +503,17 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
                 r.line3(x - s, y, z, x + s, y, z, 0x99FFFFFF.toInt())
                 r.line3(x, y - s, z, x, y + s, z, 0x99FFFFFF.toInt())
                 r.line3(x, y, z - s, x, y, z + s, 0x99FFFFFF.toInt())
+            }
+        }
+        r.flushLines(2f)
+        if(ed.showSkeleton) for(go in engine.scene.objects) {
+            val a=go.getAny<com.sengine.engine.core.SkeletalAnimator>() ?: continue
+            val pose=a.pose ?: continue
+            val joints=pose.skeleton.worldMatrices(pose)
+            for((i,j) in pose.skeleton.joints.withIndex()) {
+                val w=Mat4.mul(FloatArray(16),go.world3,joints[i]);val x=w[12];val y=w[13];val z=w[14]
+                if(j.parent>=0){val p=Mat4.mul(FloatArray(16),go.world3,joints[j.parent]);r.line3(p[12],p[13],p[14],x,y,z,0xFF55E6C1.toInt())}
+                r.circle3(x,y,z,ed.gizmoLength3D(x,y,z)*0.045f,1,0xFFFFCE6B.toInt(),8)
             }
         }
         r.flushLines(2f)

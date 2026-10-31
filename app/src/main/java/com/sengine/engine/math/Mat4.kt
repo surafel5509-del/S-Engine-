@@ -11,6 +11,17 @@ object Mat4 {
         java.util.Arrays.fill(m, 0f); m[0] = 1f; m[5] = 1f; m[10] = 1f; m[15] = 1f; return m
     }
 
+    /** Offset multiplication for bone palettes; output must not alias either input. */
+    fun mul(out: FloatArray, outOffset: Int, a: FloatArray, aOffset: Int, b: FloatArray, bOffset: Int): FloatArray {
+        val r = FloatArray(16)
+        for (c in 0 until 4) for (row in 0 until 4) {
+            var sum=0f
+            for (k in 0 until 4) sum += a[aOffset+k*4+row]*b[bOffset+c*4+k]
+            r[c*4+row]=sum
+        }
+        System.arraycopy(r,0,out,outOffset,16); return out
+    }
+
     /** out = a * b (out may alias neither) */
     fun mul(out: FloatArray, a: FloatArray, b: FloatArray): FloatArray {
         val r = FloatArray(16)

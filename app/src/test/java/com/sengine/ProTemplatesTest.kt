@@ -11,7 +11,7 @@ import com.sengine.engine.core.ScriptComponent
 import com.sengine.engine.core.TextRenderer
 import com.sengine.engine.physics.PhysicsWorld
 import com.sengine.project.Project
-import com.sengine.project.ProTemplates
+import com.sengine.fixtures.legacy.ProTemplates
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -33,8 +33,8 @@ class ProTemplatesTest {
     private fun scriptNames(p: Project) = listOf("Player.js", "Star.js", "Torch.js", "Mover.js", "Menu.js")
 
     @Test
-    fun bothTemplatesAreRegisteredWithTemplates() {
-        val names = com.sengine.project.Templates.all.map { it.name }
+    fun legacyFixturesRemainAvailableForCompatibilityTests() {
+        val names = com.sengine.fixtures.legacy.LegacyTemplates.all.map { it.name }
         assertTrue("Lumen Ascent missing", names.contains("Lumen Ascent (Pro 2D)"))
         assertTrue("Aurora Station missing", names.contains("Aurora Station (Pro 3D)"))
         assertEquals(2, ProTemplates.all.size)

@@ -25,6 +25,25 @@ class MeshProgram(val id: Int) {
     val aPos = GLES20.glGetAttribLocation(id, "aPos")
     val aNormal = GLES20.glGetAttribLocation(id, "aNormal")
     val aUV = GLES20.glGetAttribLocation(id, "aUV")
+    val aTangent = GLES20.glGetAttribLocation(id, "aTangent")
+    val aJoints = GLES20.glGetAttribLocation(id, "aJoints")
+    val aWeights = GLES20.glGetAttribLocation(id, "aWeights")
+    val uBones = GLES20.glGetUniformLocation(id, "uBones[0]")
+    val uPBR = GLES20.glGetUniformLocation(id, "uPBR")
+    val uMetallic = GLES20.glGetUniformLocation(id, "uMetallic")
+    val uRoughness = GLES20.glGetUniformLocation(id, "uRoughness")
+    val uNormalStrength = GLES20.glGetUniformLocation(id, "uNormalStrength")
+    val uAOStrength = GLES20.glGetUniformLocation(id, "uAOStrength")
+    val uAlphaMode = GLES20.glGetUniformLocation(id, "uAlphaMode")
+    val uAlphaCutoff = GLES20.glGetUniformLocation(id, "uAlphaCutoff")
+    val uUVTransform = GLES20.glGetUniformLocation(id, "uUVTransform")
+    val uEmissiveColor = GLES20.glGetUniformLocation(id, "uEmissiveColor")
+    val uEmissiveStrength = GLES20.glGetUniformLocation(id, "uEmissiveStrength")
+    val uNormalMap = GLES20.glGetUniformLocation(id, "uNormalMap")
+    val uMRMap = GLES20.glGetUniformLocation(id, "uMRMap")
+    val uAOMap = GLES20.glGetUniformLocation(id, "uAOMap")
+    val uEmissiveMap = GLES20.glGetUniformLocation(id, "uEmissiveMap")
+    val uMapFlags = GLES20.glGetUniformLocation(id, "uMapFlags")
     val uMVP = GLES20.glGetUniformLocation(id, "uMVP")
     val uModel = GLES20.glGetUniformLocation(id, "uModel")
     val uNormalMat = GLES20.glGetUniformLocation(id, "uNormalMat")
@@ -66,22 +85,29 @@ class PostProgram(val id: Int) {
 class ShaderLibrary(private val project: Project, private val log: (String) -> Unit) {
     private val sprites = HashMap<String, Pair<Long, SpriteProgram?>>()
     private val meshes = HashMap<String, Pair<Long, MeshProgram?>>()
+    private val skins = HashMap<String, Pair<Long, MeshProgram?>>()
     private val posts = HashMap<String, Pair<Long, PostProgram?>>()
     private var sources: ShaderSourceSet? = null
     lateinit var defaultSprite: SpriteProgram
     lateinit var defaultMesh: MeshProgram
+    var skinMesh: MeshProgram? = null
+    val supportsGpuSkin get() = sources?.supportsGpuSkin == true
 
     /** The dialect in use, or null before [init]. */
     val dialect get() = sources?.dialect
 
     /** Builds the built-in programs for [set]. Throws [GraphicsInitException] if they cannot be built. */
     fun init(set: ShaderSourceSet) {
-        sprites.clear(); meshes.clear(); posts.clear()
+        sprites.clear(); meshes.clear(); skins.clear(); posts.clear()
         sources = null
         val spriteFs = set.spriteFs(DEFAULT_EFFECT)
         defaultSprite = SpriteProgram(GL.compileOrThrow("sprite (${set.dialect.name})", set.spriteVs, spriteFs))
         val meshFs = set.meshFs(DEFAULT_EFFECT)
         defaultMesh = MeshProgram(GL.compileOrThrow("mesh (${set.dialect.name})", set.meshVs, meshFs))
+        skinMesh = if(set.supportsGpuSkin) {
+            val (id,error) = GL.tryCompile(set.skinnedMeshVs,meshFs)
+            if(error!=null) { log("GPU skin unavailable; using CPU skinning: $error"); null } else MeshProgram(id)
+        } else null
         sources = set
     }
 
@@ -104,16 +130,17 @@ class ShaderLibrary(private val project: Project, private val log: (String) -> U
         return p
     }
 
-    fun mesh(name: String): MeshProgram? {
+    fun mesh(name: String, skinned: Boolean = false): MeshProgram? {
         if (name.isBlank()) return null
         val (stamp, src) = source(name) ?: return null
-        meshes[name]?.let { if (it.first == stamp) return it.second }
+        val cache = if(skinned) skins else meshes
+        cache[name]?.let { if (it.first == stamp) return it.second }
         val set = sources ?: return null
         val fs = set.meshFs(src)
-        val (id, err) = GL.tryCompile(set.meshVs, fs)
+        val (id, err) = GL.tryCompile(if(skinned) set.skinnedMeshVs else set.meshVs, fs)
         if (err != null) log(ShaderDiagnostics.describe(name, set.dialect, err, fs, src))
         val p = if (id != 0) MeshProgram(id) else null
-        meshes[name] = stamp to p
+        cache[name] = stamp to p
         return p
     }
 

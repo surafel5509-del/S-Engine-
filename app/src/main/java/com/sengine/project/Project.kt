@@ -14,6 +14,9 @@ class Project(val dir: File) {
     private val metaFile = File(dir, "project.json")
 
     var startScene = "Main"
+    /** Empty means a legacy project: infer from scene cameras instead of rewriting its data. */
+    var dimension = ""
+    var templateId = ""
     var created = System.currentTimeMillis()
     var orientation = 0 // 0 landscape, 1 portrait
     /** Preferred runtime overlay: "classic", "drive", or "driveTilt" (drive pedals plus accelerometer balance). */
@@ -30,6 +33,8 @@ class Project(val dir: File) {
                 created = o.optLong("created", created)
                 orientation = o.optInt("orientation", 0)
                 controlScheme = o.optString("controlScheme", "classic")
+                dimension = o.optString("dimension", "")
+                templateId = o.optString("templateId", "")
             } catch (_: Exception) {
             }
         }
@@ -39,12 +44,15 @@ class Project(val dir: File) {
         dir.mkdirs(); assetsDir.mkdirs(); scenesDir.mkdirs()
         val o = JSONObject()
         o.put("name", name)
-        o.put("engine", "S Engine 1.0")
+        o.put("engine", "S Engine Studio 3.0")
+        o.put("schemaVersion", 3)
+        o.put("dimension", dimension)
+        o.put("templateId", templateId)
         o.put("startScene", startScene)
         o.put("created", created)
         o.put("orientation", orientation)
         o.put("controlScheme", controlScheme)
-        metaFile.writeText(o.toString(2))
+        AtomicFiles.writeText(metaFile, o.toString(2))
     }
 
     /** Small project-scoped save store used by games for wallets, upgrades and high scores. */
@@ -91,7 +99,7 @@ class Project(val dir: File) {
 
     fun saveScene(scene: Scene) {
         scenesDir.mkdirs()
-        sceneFile(scene.name).writeText(SceneSerializer.toJson(scene).toString(1))
+        AtomicFiles.writeText(sceneFile(scene.name), SceneSerializer.toJson(scene).toString(2))
     }
 
     fun deleteScene(n: String) = sceneFile(n).delete()
@@ -107,16 +115,22 @@ class Project(val dir: File) {
     fun readAsset(n: String): String? = assetFile(n).takeIf { it.exists() }?.readText()
 
     fun writeAsset(n: String, text: String) {
-        assetsDir.mkdirs(); assetFile(n).writeText(text)
+        AtomicFiles.writeText(assetFile(n), text)
     }
 
     /** Binary asset write (imported images, fonts, models, generated PNGs). */
     fun writeAssetBytes(n: String, bytes: ByteArray) {
-        assetsDir.mkdirs()
-        assetFile(n).writeBytes(bytes)
+        AtomicFiles.writeBytes(assetFile(n), bytes)
     }
 
     fun readAssetBytes(n: String): ByteArray? = assetFile(n).takeIf { it.isFile }?.readBytes()
+
+    private val materialStore by lazy { MaterialStore(this) }
+    fun materials(): MaterialStore = materialStore
+
+    fun reloadMaterials() {
+        materialStore.clear()
+    }
 
     // ---------------------------------------------------------------- texture pipeline
 
@@ -135,7 +149,7 @@ class Project(val dir: File) {
     fun saveTextureSettings() {
         val store = textureSettingsCache ?: return
         dir.mkdirs()
-        textureSettingsFile.writeText(store.saveText())
+        AtomicFiles.writeText(textureSettingsFile, store.saveText())
     }
 
     // ---------------------------------------------------------------- sprite studio documents

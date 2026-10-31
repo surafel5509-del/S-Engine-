@@ -9,19 +9,54 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /** Non-indexed triangle mesh: interleaved position(3) normal(3) uv(2). */
-class Mesh(data: FloatArray) {
+class Mesh(val data: FloatArray, skinData: FloatArray? = null, tangentData: FloatArray? = null) {
+    init { require(data.size % 8 == 0 && data.size <= 2_000_000); require(skinData == null || skinData.size == data.size); require(tangentData == null || tangentData.size == data.size / 2) }
     val vertexCount = data.size / 8
     val buffer: FloatBuffer = ByteBuffer.allocateDirect(data.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(data); position(0) }
+    val skin: FloatBuffer? = skinData?.let { ByteBuffer.allocateDirect(it.size*4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(it); position(0) } }
+    val tangents: FloatBuffer? = (tangentData ?: if (data.isNotEmpty()) generateTangents(data) else null)?.let { ByteBuffer.allocateDirect(it.size*4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(it); position(0) } }
     val min = floatArrayOf(Float.MAX_VALUE, Float.MAX_VALUE, Float.MAX_VALUE)
     val max = floatArrayOf(-Float.MAX_VALUE, -Float.MAX_VALUE, -Float.MAX_VALUE)
 
-    init {
+    init { updateBounds() }
+
+    fun updateBounds() {
+        min.fill(Float.MAX_VALUE); max.fill(-Float.MAX_VALUE)
         for (i in 0 until vertexCount) for (k in 0 until 3) {
             val v = data[i * 8 + k]
             if (v < min[k]) min[k] = v
             if (v > max[k]) max[k] = v
         }
         if (vertexCount == 0) { min.fill(-0.5f); max.fill(0.5f) }
+    }
+    companion object {
+        /** Triangle-accumulated, orthogonalized tangent basis; mirrored UVs retain their handedness. */
+        fun generateTangents(d: FloatArray): FloatArray {
+            val out = FloatArray(d.size / 2)
+            for (o in d.indices step 24) {
+                val ids = intArrayOf(o,o+8,o+16)
+                val (a,b,c) = ids
+                val e1x=d[b]-d[a]; val e1y=d[b+1]-d[a+1]; val e1z=d[b+2]-d[a+2]
+                val e2x=d[c]-d[a]; val e2y=d[c+1]-d[a+1]; val e2z=d[c+2]-d[a+2]
+                val du1=d[b+6]-d[a+6]; val dv1=d[b+7]-d[a+7]; val du2=d[c+6]-d[a+6]; val dv2=d[c+7]-d[a+7]
+                val det=du1*dv2-du2*dv1
+                if (kotlin.math.abs(det)<1e-10f) continue
+                val r=1f/det
+                val tx=(e1x*dv2-e2x*dv1)*r; val ty=(e1y*dv2-e2y*dv1)*r; val tz=(e1z*dv2-e2z*dv1)*r
+                val bx=(e2x*du1-e1x*du2)*r; val by=(e2y*du1-e1y*du2)*r; val bz=(e2z*du1-e1z*du2)*r
+                val w=if ((d[a+4]*(ty*bz-tz*by)+d[a+5]*(tz*bx-tx*bz)+d[a+6]*(tx*by-ty*bx))<0f) -1f else 1f
+                for (v in ids) { val t=v/2; out[t]+=tx; out[t+1]+=ty; out[t+2]+=tz; out[t+3]=w }
+            }
+            for (i in out.indices step 4) {
+                val o=i*2; val nx=d[o+3]; val ny=d[o+4]; val nz=d[o+5]
+                val dot=nx*out[i]+ny*out[i+1]+nz*out[i+2]
+                var x=out[i]-nx*dot; var y=out[i+1]-ny*dot; var z=out[i+2]-nz*dot
+                var len=sqrt(x*x+y*y+z*z)
+                if (len<1e-8f) { x=if(kotlin.math.abs(nx)<0.9f) 1f else 0f; y=if(x==0f) 1f else 0f; z=0f; val dp=nx*x+ny*y+nz*z; x-=nx*dp; y-=ny*dp; z-=nz*dp; len=sqrt(x*x+y*y+z*z) }
+                out[i]=x/len; out[i+1]=y/len; out[i+2]=z/len; if(out[i+3]==0f) out[i+3]=1f
+            }
+            return out
+        }
     }
 }
 

@@ -56,6 +56,9 @@ class TextureCache(private val project: Project, budgetBytes: Long = DEFAULT_BUD
         images.clear(); stamps.clear(); stampChecked.clear(); texts.clear(); budget.clear()
     }
 
+    /** Invalidate settings without changing the source texture stamp. GL thread only. */
+    fun invalidateSettings() { stamps.clear(); stampChecked.clear() }
+
     /** Import settings for an asset (filtering, wrap, mipmaps, max size). */
     fun settingsFor(name: String): com.sengine.project.TextureSettings =
         project.textureSettings().get(name)

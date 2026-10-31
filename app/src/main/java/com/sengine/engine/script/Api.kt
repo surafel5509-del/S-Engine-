@@ -119,15 +119,46 @@ class SObject(private val go: GameObject, private val engine: Engine, private va
     }
 
     // ---- animation
+    fun crossFade(clip: String, seconds: Double) {
+        val skeletal = go.getAny<com.sengine.engine.core.SkeletalAnimator>()
+        if (skeletal != null) { skeletal.request(clip, seconds.toFloat()); return }
+        play(clip)
+    }
+    fun setBoneRotation(name: String, x: Double, y: Double, z: Double): Boolean {
+        val animator = go.getAny<com.sengine.engine.core.SkeletalAnimator>() ?: return false
+        val pose = animator.pose ?: return false
+        val index = pose.skeleton.joints.indexOfFirst { it.name == name }
+        if (index < 0) return false
+        val q=com.sengine.engine.anim.Quaternion.fromEuler(x.toFloat(),y.toFloat(),z.toFloat()); System.arraycopy(q,0,pose.rotation[index],0,4)
+        return true
+    }
+    fun getBonePosition(name: String): Any? {
+        val animator = go.getAny<com.sengine.engine.core.SkeletalAnimator>() ?: return null
+        val pose = animator.pose ?: return null
+        val index = pose.skeleton.joints.indexOfFirst { it.name == name }
+        if (index < 0) return null
+        val local = pose.skeleton.worldMatrices(pose)[index]
+        val world = com.sengine.engine.math.Mat4.mul(FloatArray(16),go.world3,local)
+        return sys.newArray(listOf(world[12].toDouble(),world[13].toDouble(),world[14].toDouble()))
+    }
+    fun setMaterial(asset: String) { go.getAny<com.sengine.engine.core.MeshRenderer>()?.material = asset }
+    fun setMaterialProperty(key: String, value: Double) {
+        val mr = go.getAny<com.sengine.engine.core.MeshRenderer>() ?: return
+        val material = engine.project.materials().get(mr.material)?.copyMaterial() ?: return
+        when(key) { "metallic" -> material.metallic=value.toFloat(); "roughness" -> material.roughness=value.toFloat(); "emissiveStrength" -> material.emissiveStrength=value.toFloat(); else -> return }
+        runtimeMaterials[go.id] = material
+    }
     fun play(clip: String) {
+        val skeletal = go.getAny<com.sengine.engine.core.SkeletalAnimator>()
+        if (skeletal != null) { if (skeletal.current != clip || skeletal.finished) skeletal.request(clip, 0f); skeletal.playing = true; return }
         val a = go.getAny<com.sengine.engine.core.Animator>() ?: return
         if (a.current == clip && a.playing && !a.finished) return
         a.current = clip; a.time = 0f; a.frame = 0; a.finished = false; a.playing = true
     }
-    fun stopAnimation() { go.getAny<com.sengine.engine.core.Animator>()?.playing = false }
-    fun getAnimation(): String = go.getAny<com.sengine.engine.core.Animator>()?.current ?: ""
-    fun isAnimationFinished(): Boolean = go.getAny<com.sengine.engine.core.Animator>()?.finished ?: true
-    fun setAnimSpeed(v: Double) { go.getAny<com.sengine.engine.core.Animator>()?.speed = v.toFloat() }
+    fun stopAnimation() { go.getAny<com.sengine.engine.core.Animator>()?.playing = false; go.getAny<com.sengine.engine.core.SkeletalAnimator>()?.playing = false }
+    fun getAnimation(): String = go.getAny<com.sengine.engine.core.SkeletalAnimator>()?.current ?: go.getAny<com.sengine.engine.core.Animator>()?.current ?: ""
+    fun isAnimationFinished(): Boolean = go.getAny<com.sengine.engine.core.SkeletalAnimator>()?.finished ?: go.getAny<com.sengine.engine.core.Animator>()?.finished ?: true
+    fun setAnimSpeed(v: Double) { go.getAny<com.sengine.engine.core.Animator>()?.speed = v.toFloat(); go.getAny<com.sengine.engine.core.SkeletalAnimator>()?.speed = v.toFloat() }
 
     // ---- rendering
     fun setShaderParam(v: Double) {
@@ -192,6 +223,11 @@ class SObject(private val go: GameObject, private val engine: Engine, private va
     fun send(fn: String): Any? = sys.sendMessage(go, fn, null)
     fun `is`(o: SObject?): Boolean = o != null && o.go === go
     override fun toString() = "GameObject(${go.name})"
+    companion object {
+        /** Runtime-only overrides: scripts never rewrite the shared material asset on disk. */
+        val runtimeMaterials = java.util.concurrent.ConcurrentHashMap<Long,com.sengine.project.Material>()
+        fun clearOverrides() = runtimeMaterials.clear()
+    }
 }
 
 class SScene(private val engine: Engine, private val sys: ScriptSystem) {
@@ -202,6 +238,7 @@ class SScene(private val engine: Engine, private val sys: ScriptSystem) {
     fun count(tag: String): Double =
         engine.scene.objects.count { it.tag == tag && !it.destroyed && it.isActiveInHierarchy() }.toDouble()
     private fun spawnGo(name: String, x: Float, y: Float, z: Float?): GameObject? {
+        if (!sys.canSpawn()) { engine.log(2, "Spawn limit reached for this frame (${sys.maxSpawnPerFrame})"); return null }
         val template = engine.scene.find(name) ?: run { engine.log(1, "spawn: '$name' not found"); return null }
         val copy = engine.scene.duplicate(template, null)
         copy.active = true
@@ -210,7 +247,7 @@ class SScene(private val engine: Engine, private val sys: ScriptSystem) {
             d.components.forEach { it.resetRuntime() }
         }
         engine.scene.updateTransforms()
-        sys.attach(copy)
+        sys.attachTree(copy)
         return copy
     }
     fun spawn(name: String, x: Double, y: Double): Any? = spawnGo(name, x.toFloat(), y.toFloat(), null)?.let { sys.toJs(it) }

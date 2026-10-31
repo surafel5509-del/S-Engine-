@@ -15,7 +15,7 @@ import com.sengine.aibuilder.spec.SpecValue
 import com.sengine.engine.core.ScriptComponent
 import com.sengine.engine.core.TextRenderer
 import com.sengine.project.Project
-import com.sengine.project.Templates
+import com.sengine.fixtures.legacy.LegacyTemplates
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -243,7 +243,7 @@ class GameToolWorkflowTest {
         val root = Files.createTempDirectory("sengine-ai-build").toFile()
         val project = Project(File(root, projectName))
         project.saveMeta()
-        Templates.all.first { it.name == templateName }.build(project)
+        LegacyTemplates.all.first { it.name == templateName }.build(project)
         project.saveMeta()
         return project
     }

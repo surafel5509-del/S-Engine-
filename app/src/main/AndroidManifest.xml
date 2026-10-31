@@ -65,6 +65,9 @@
             android:windowSoftInputMode="adjustPan"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
 
+        <activity android:name=".ui.MaterialEditorActivity" android:exported="false" android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|keyboardHidden" />
+        <activity android:name=".ui.SkeletalEditorActivity" android:exported="false" android:screenOrientation="sensorLandscape" android:configChanges="orientation|screenSize|keyboardHidden" />
+
         <activity
             android:name=".ui.SpriteStudioActivity"
             android:exported="false"

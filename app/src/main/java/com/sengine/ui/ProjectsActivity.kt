@@ -58,7 +58,7 @@ class ProjectsActivity : AppCompatActivity() {
         }
         val titleBox = vbox()
         titleBox.addView(label("S Engine", 28f, C.TEXT, true))
-        titleBox.addView(label("2D & 3D game engine & editor for Android  •  Ultimate v2.0", 13f, C.DIM))
+        titleBox.addView(label("2D & 3D game engine & editor for Android  •  Studio 3.0", 13f, C.DIM))
         header.addView(titleBox, lp(0, WRAP, 1f))
         header.addView(button("✦ AI Builder", C.PANEL2) {
             startActivity(Intent(this, AiBuilderActivity::class.java))
@@ -73,15 +73,7 @@ class ProjectsActivity : AppCompatActivity() {
         root.addView(ScrollView(this).apply { addView(list) }, lp(MATCH, 0, 1f))
         setContentView(root)
 
-        val prefs = getSharedPreferences("sengine", MODE_PRIVATE)
-        if (!prefs.getBoolean("seeded", false)) {
-            prefs.edit().putBoolean("seeded", true).apply()
-            if (ProjectManager.list(this).isEmpty()) {
-                ProjectManager.create(this, "Platformer Demo", Templates.all[1])
-                ProjectManager.create(this, "Space Shooter", Templates.all[2])
-                ProjectManager.create(this, "Hill Climb Racer", Templates.all.first { it.name == "Hill Climb Racer" })
-            }
-        }
+        // Studio starts empty. Existing projects are never migrated or overwritten.
     }
 
     override fun onResume() {
@@ -100,12 +92,12 @@ class ProjectsActivity : AppCompatActivity() {
         intent.removeExtra("sengine_test")
         val name = intent.getStringExtra("project") ?: ProjectManager.list(this).firstOrNull()?.name ?: return
         if (!ProjectManager.exists(this, name)) {
-            val t = Templates.all.firstOrNull { it.name == name } ?: Templates.all.last()
+            val t = Templates.all.firstOrNull { it.name == name } ?: Templates.all.first { it.id == "empty-3d" }
             ProjectManager.create(this, name, t)
         }
         when (action) {
             "open" -> startActivity(Intent(this, EditorActivity::class.java).putExtra("project", name))
-            "open3d" -> startActivity(Intent(this, EditorActivity::class.java).putExtra("project", name).putExtra("mode3d", true))
+            "open3d" -> startActivity(Intent(this, EditorActivity::class.java).putExtra("project", name).putExtra("mode3d", ProjectManager.open(this,name).dimension == "3d"))
             "play" -> startActivity(Intent(this, PlayerActivity::class.java).putExtra("project", name))
             "build" -> startActivity(Intent(this, BuildActivity::class.java).putExtra("project", name).putExtra("autobuild", true).putExtra("output", "test_game.apk"))
             "store" -> startActivity(Intent(this, AssetStoreActivity::class.java).putExtra("project", name))
@@ -189,17 +181,18 @@ class ProjectsActivity : AppCompatActivity() {
         box.addView(name, lp(MATCH, WRAP).margins(0, dp(4), 0, dp(12)))
         box.addView(label("Template", 12f, C.DIM))
         val group = RadioGroup(this)
+        val catalog=ScrollView(this).apply{addView(group);maxHeight=dp(330)}
         Templates.all.forEachIndexed { i, t ->
             group.addView(RadioButton(this).apply {
                 id = 1000 + i
-                text = "${t.name}\n${t.description}"
+                text = "${t.name}  ·  ${t.dimension.uppercase()}\n${t.description}"
                 setTextColor(C.TEXT)
                 textSize = 13f
                 setPadding(dp(4), dp(6), 0, dp(6))
             })
         }
         group.check(1000)
-        box.addView(group)
+        box.addView(catalog,lp(MATCH,WRAP))
         MaterialAlertDialogBuilder(this)
             .setTitle("New Project")
             .setView(ScrollView(this).apply { addView(box) })

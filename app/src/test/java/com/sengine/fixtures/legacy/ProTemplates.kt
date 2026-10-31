@@ -1,4 +1,7 @@
-package com.sengine.project
+package com.sengine.fixtures.legacy
+
+import com.sengine.project.Project
+import com.sengine.project.AssetLibrary
 
 import com.sengine.engine.core.Camera2D
 import com.sengine.engine.core.Camera3D

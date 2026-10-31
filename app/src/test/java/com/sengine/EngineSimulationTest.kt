@@ -9,7 +9,7 @@ import com.sengine.engine.core.SceneSerializer
 import com.sengine.engine.core.SpriteRenderer
 import com.sengine.engine.physics.PhysicsWorld
 import com.sengine.project.Project
-import com.sengine.project.Templates
+import com.sengine.fixtures.legacy.LegacyTemplates
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -27,7 +27,7 @@ class EngineSimulationTest {
         val dir = Files.createTempDirectory("sengine").toFile()
         val p = Project(File(dir, "Test"))
         p.saveMeta()
-        Templates.all[template].build(p)
+        LegacyTemplates.all[template].build(p)
         p.saveMeta()
         return p
     }

@@ -4,7 +4,7 @@ import com.sengine.export.ApkBuilder
 import com.sengine.export.AxmlPatcher
 import com.sengine.export.GameBuildConfig
 import com.sengine.project.Project
-import com.sengine.project.Templates
+import com.sengine.fixtures.legacy.LegacyTemplates
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -39,7 +39,7 @@ class ApkExportTest {
         val dir = Files.createTempDirectory("export").toFile()
         val p = Project(File(dir, "Space Run"))
         p.saveMeta()
-        Templates.all.first { it.name == "Space Shooter" }.build(p)
+        LegacyTemplates.all.first { it.name == "Space Shooter" }.build(p)
         p.saveMeta()
         File(p.dir, ".build_settings.json").writeText("{}") // dotfiles must not be exported
 

@@ -11,6 +11,7 @@ class EditorState {
     @Volatile var showGrid = true
     @Volatile var showColliders = true
     @Volatile var showProfiler = false
+    @Volatile var showSkeleton = true
     @Volatile var activeAxis = 0 // 0 none, 1 x, 2 y, 3 free (2D) / 3 z, 4 free (3D)
 
     // 3D editor orbit camera

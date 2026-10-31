@@ -1,4 +1,7 @@
-package com.sengine.project
+package com.sengine.fixtures.legacy
+
+import com.sengine.project.Project
+import com.sengine.project.AssetLibrary
 
 import com.sengine.engine.core.AudioSource
 import com.sengine.engine.core.Camera2D
@@ -12,7 +15,7 @@ import com.sengine.engine.core.TextRenderer
 
 /** Built-in endless off-road game template. Everything is authored with S Engine objects and scripts. */
 object HillClimbTemplate {
-    val template = Templates.Template(
+    val template = LegacyTemplates.Template(
         "Hill Climb Racer",
         "Spring-suspended off-road driving with four staged biomes, hazards, fuel, rotating challenges, garage upgrades and phone-tilt balance."
     ) { project ->
