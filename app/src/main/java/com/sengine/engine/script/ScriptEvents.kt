@@ -45,7 +45,7 @@ class ScriptTimers(private val runtime:ScriptSystem) {
             if(t.interval>0){
                 var deadline=t.deadline+t.interval
                 if(deadline<now)deadline=now+t.interval
-                timers[timers.indexOf(t)]=t.copy(deadline=deadline)
+                val index=timers.indexOf(t);if(index<0)continue;timers[index]=t.copy(deadline=deadline)
             }else timers.remove(t)
             runtime.invokeOwner(t.owner,"timer",t.callback)
         }

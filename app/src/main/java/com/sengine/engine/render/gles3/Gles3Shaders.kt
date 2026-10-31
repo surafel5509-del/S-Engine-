@@ -100,6 +100,7 @@ void main() {
 
     override fun meshFs(effect: String) = """#version 300 es
 precision highp float;
+precision highp int;
 in vec3 vTangent;
 in float vTangentW;
 in vec3 vWorld;
@@ -158,7 +159,6 @@ void main() {
     col = col * light + specular;
   }
   if(uPBR>0.5) {
-    base.rgb=pow(max(base.rgb,vec3(0.0)),vec3(2.2));
     ${PbrShader.lighting}
   } else col += base.rgb * uEmission;
   if (uFog.z > 0.5) {

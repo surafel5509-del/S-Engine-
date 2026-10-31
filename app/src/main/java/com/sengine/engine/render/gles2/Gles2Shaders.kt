@@ -97,8 +97,7 @@ varying float vTangentW;
 varying vec3 vWorld;
 varying vec3 vNormal;
 varying vec2 vUV;
-varying vec3 vTangent;
-varying float vTangentW;
+${PbrShader.uniforms}
 uniform vec4 uColor;
 uniform sampler2D uTex;
 uniform float uUseTex;
@@ -149,7 +148,6 @@ void main() {
     col = col * light + specular;
   }
   if(uPBR>0.5) {
-    base.rgb=pow(max(base.rgb,vec3(0.0)),vec3(2.2));
     ${PbrShader.lighting}
   } else col += base.rgb * uEmission;
   if (uFog.z > 0.5) {

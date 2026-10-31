@@ -151,7 +151,7 @@ class Renderer3D {
             GLES20.glEnableVertexAttribArray(p.aUV)
             GLES20.glVertexAttribPointer(p.aUV, 2, GLES20.GL_FLOAT, false, 32, b)
         }
-        bindOptional(p.aTangent,4,mesh.tangents)
+        if(mesh.tangents!=null)bindOptional(p.aTangent,4,mesh.tangents) else if(p.aTangent>=0){GLES20.glDisableVertexAttribArray(p.aTangent);GLES20.glVertexAttrib4f(p.aTangent,1f,0f,0f,1f)}
         if(bones!=null) { bindOptional(p.aJoints,4,mesh.skin); bindOptional(p.aWeights,4,mesh.skin,4) }
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, mesh.vertexCount)
         for(loc in listOf(p.aTangent,p.aJoints,p.aWeights)) if(loc>=0) GLES20.glDisableVertexAttribArray(loc)

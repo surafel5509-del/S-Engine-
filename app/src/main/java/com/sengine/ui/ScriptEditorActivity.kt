@@ -20,6 +20,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.sengine.project.Project
 import com.sengine.project.ProjectManager
+import com.sengine.engine.script.ScriptDiagnostics
 
 /** Code editor for JavaScript behaviour scripts with syntax highlighting and quick keys. */
 class ScriptEditorActivity : AppCompatActivity() {
@@ -54,6 +55,7 @@ class ScriptEditorActivity : AppCompatActivity() {
         bar.addView(button("↶") { undo() }, lp(WRAP, WRAP).margins(dp(3), 0, dp(3), 0))
         bar.addView(button("↷") { redo() }, lp(WRAP, WRAP).margins(dp(3), 0, dp(3), 0))
         bar.addView(button(if (glsl) "GLSL" else "API") { showApi() }, lp(WRAP, WRAP).margins(dp(3), 0, dp(3), 0))
+        if(!glsl)bar.addView(button("Check"){checkScript()},lp(WRAP,WRAP).margins(dp(3),0,dp(3),0))
         bar.addView(button("Save", C.ACCENT, 0xFFFFFFFF.toInt()) { save() }, lp(WRAP, WRAP).margins(dp(3), 0, 0, 0))
         root.addView(bar, lp(MATCH, WRAP))
 
@@ -134,7 +136,16 @@ class ScriptEditorActivity : AppCompatActivity() {
         editor.text.replace(minOf(st, en), maxOf(st, en), s)
     }
 
+    private fun checkScript():Boolean {
+        val report=ScriptDiagnostics.validate(asset,editor.text.toString())
+        val details=report.issues.joinToString("\n"){"${it.severity.uppercase()} · line ${it.line}:${it.column}\n${it.message}"}
+        status.text=if(report.ok)"✓ JavaScript parsed · ${report.functions.size} named functions${if(details.isNotEmpty())" · ${report.issues.size} warning(s)" else ""}" else details
+        status.setTextColor(if(report.ok)C.GREEN else C.RED)
+        if(!report.ok)MaterialAlertDialogBuilder(this).setTitle("Script diagnostics").setMessage(details).setPositiveButton("Go to line"){_,_->val issue=report.issues.first();val lines=editor.text.toString().split('\n');val pos=lines.take((issue.line-1).coerceAtMost(lines.size)).sumOf{it.length+1}+(issue.column-1).coerceAtLeast(0);editor.requestFocus();editor.setSelection(pos.coerceIn(0,editor.length()))}.setNegativeButton("Close",null).show()
+        return report.ok
+    }
     private fun save() {
+        if(!glsl && !checkScript()){Toast.makeText(this,"Fix syntax errors before saving",Toast.LENGTH_SHORT).show();return}
         val t = editor.text.toString()
         project.writeAsset(asset, t)
         saved = t

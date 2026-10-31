@@ -401,7 +401,7 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
                 if(assigned==null){partMr.color=mr.color;partMr.texture=mr.texture;partMr.unlit=mr.unlit}
                 val partMaps=assigned?.textureNames?.associateWith{textures.image(it)}.orEmpty()
                 val skinned=part.skinned && model.skeleton!=null && animator?.pose!=null
-                val gpu=skinned && shaders.supportsGpuSkin && (model.skeleton?.joints?.size ?: 0)<=32
+                val gpu=skinned && shaders.skinMesh!=null && (model.skeleton?.joints?.size ?: 0)<=32
                 val mesh=if(skinned&&!gpu){
                     val target=cpuMeshes[go.id]!![index]
                     if(target.vertexCount!=part.mesh.vertexCount)cpuMeshes[go.id]!![index]=Mesh(FloatArray(part.mesh.vertexCount*8),null,FloatArray(part.mesh.vertexCount*4)).also{CpuSkinning.apply(part.mesh,animator!!.palette,it)}

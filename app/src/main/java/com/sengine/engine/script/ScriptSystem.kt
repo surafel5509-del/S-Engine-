@@ -32,13 +32,16 @@ class ScriptSystem(val engine:Engine,private val enabled:Boolean=true):PhysicsWo
     val instanceCount get()=instances.size
     val diagnostics get()=instances.map{mapOf("script" to it.file,"object" to it.go.name,"calls" to it.calls,"milliseconds" to it.lastMs,"failed" to it.failed)}
     var maxCallbackMs=35L
-    var maxSpawnPerFrame=64
+    var maxSpawnPerFrame=256
 
     fun begin(){
         if(!enabled)return
         end();val c=RuntimeContext();Context.enter(c);c.optimizationLevel=-1;c.languageVersion=Context.VERSION_ES6
         c.wrapFactory.isJavaPrimitiveWrap=false;c.instructionObserverThreshold=4096
-        c.setClassShutter(ClassShutter { false })
+        c.setClassShutter(ClassShutter { name -> name in setOf(
+            "com.sengine.engine.script.SObject","com.sengine.engine.script.SScene","com.sengine.engine.script.SInput",
+            "com.sengine.engine.script.SStorage","com.sengine.engine.script.STime","com.sengine.engine.script.SAudio",
+            "com.sengine.engine.script.SConsole","com.sengine.engine.script.ScriptEvents","com.sengine.engine.script.ScriptTimers") })
         cx=c;ownerThread=Thread.currentThread();val g=c.initStandardObjects();global=g
         for(name in listOf("Packages","java","javax","org","com","edu","net","JavaAdapter","importClass","importPackage"))g.delete(name)
         inputApi.sync();put(g,"input",inputApi);put(g,"time",STime(engine));put(g,"scene",SScene(engine,this));put(g,"audio",SAudio(engine))
@@ -81,11 +84,11 @@ class ScriptSystem(val engine:Engine,private val enabled:Boolean=true):PhysicsWo
             val self=Context.javaToJS(wrap(go),g);for(name in listOf("self","transform","gameObject"))ScriptableObject.putProperty(scope,name,self)
             put(scope,"require",ModuleRequire(this,comp.script))
             val inst=Instance(go,comp,scope,comp.script)
+            instances.add(inst)
             try{
                 val params=ScriptParameters.parse(comp.params);params.forEach{(k,v)->ScriptableObject.putProperty(scope,k,v)}
                 guarded(inst,"initialize"){script.exec(c,scope)}
                 params.forEach{(k,v)->ScriptableObject.putProperty(scope,k,v)}
-                instances.add(inst)
             }catch(e:Exception){fail(inst,e)}
         }
     }
@@ -110,10 +113,11 @@ class ScriptSystem(val engine:Engine,private val enabled:Boolean=true):PhysicsWo
     fun lateUpdate(dt:Float){for(inst in instances.toList())if(eligible(inst))call(inst,"lateUpdate",dt.toDouble())}
     private fun eligible(inst:Instance)=inst.started&&!inst.failed&&!inst.go.destroyed&&inst.go.isActiveInHierarchy()&&inst.comp.enabled
     private fun guarded(inst:Instance,label:String,block:()->Any?):Any?{
+        val budget=if(label=="start"||label=="initialize")250L else maxCallbackMs
         if(callDepth>=24)throw BudgetExceeded("Callback recursion limit (24) exceeded")
         val prior=active;val priorStart=callStart;val context=cx as? RuntimeContext
         active=inst;callDepth++;callStart=System.nanoTime();inst.calls++
-        context?.check={if(System.nanoTime()-callStart>maxCallbackMs*1_000_000)throw BudgetExceeded("$label exceeded ${maxCallbackMs}ms; instance disabled")}
+        context?.check={if(System.nanoTime()-callStart>budget*1_000_000)throw BudgetExceeded("$label exceeded ${budget}ms; instance disabled")}
         return try{block()}finally{active=prior;callStart=priorStart;callDepth--;context?.check={}}
     }
     private fun fail(inst:Instance,e:Exception){
