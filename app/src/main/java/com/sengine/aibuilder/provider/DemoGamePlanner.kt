@@ -11,6 +11,7 @@ import com.sengine.engine.core.Camera3D
 import com.sengine.engine.core.ScriptComponent
 import com.sengine.engine.core.TextRenderer
 import com.sengine.project.Project
+import com.sengine.project.ProjectManager
 import com.sengine.project.Templates
 import java.util.Locale
 
@@ -31,25 +32,23 @@ object DemoGamePlanner {
             ?: GameTemplateCatalog.entries().firstOrNull { it.id == "neon-relay" }
             ?: error("No S Engine template is available")
         val template = Templates.all.first { GameTemplateCatalog.idFor(it.name) == entry.id }
-        val projectName = uniqueName(template.name, existingProjectNames)
+        val projectName = uniqueName(ProjectManager.sanitize(template.name), existingProjectNames)
         val mechanics = when (entry.id) {
-            "empty-2d" -> listOf("drive controls", "procedural terrain", "coins", "fuel", "hazards", "biome progression", "garage upgrades")
-            "neon-relay" -> listOf("run and jump", "platform collision", "coin collection", "score HUD")
-            "orbit-salvage" -> listOf("touch/joystick movement", "shooting", "enemy waves", "score", "game over")
-            "sentinel-protocol" -> listOf("3D character movement", "physics", "pickup triggers", "camera follow")
-            "studio-lab" -> listOf("run and jump", "sprite-sheet animation", "coins", "enemy patrol")
-            "empty-2d" -> listOf("2D rigidbody physics", "bouncy objects", "tap-to-spawn")
-            "empty-2d" -> listOf("visual blueprint behaviors", "platform movement", "collectibles")
+            "empty-2d", "empty-3d" -> listOf("empty editable scene", "project-local assets", "add your own cameras and gameplay")
+            "neon-relay" -> listOf("coyote time and buffered jumps", "checkpoints", "energy collection", "timed result")
+            "orbit-salvage" -> listOf("dual-axis flight", "projectiles", "debris waves", "score and hull")
+            "sentinel-protocol" -> listOf("third-person movement", "skeletal locomotion", "PBR lighting", "recovery mission")
+            "studio-lab" -> listOf("weighted robot rig", "idle and run clips", "live material spheres", "look development")
             else -> listOf("editable S Engine scene", "local template assets")
         }
         val genre = when (entry.id) {
-            "empty-2d" -> "2D hill-climb driving"
-            "neon-relay", "studio-lab" -> "2D platformer"
-            "orbit-salvage" -> "2D shooter"
+            "empty-2d" -> "Empty 2D project"
+            "empty-3d" -> "Empty 3D project"
+            "neon-relay" -> "2D precision platformer"
+            "orbit-salvage" -> "2D survival shooter"
             "sentinel-protocol" -> "3D action adventure"
-            "empty-2d" -> "2D physics sandbox"
-            "empty-2d" -> "2D visual-scripting platformer"
-            else -> "2D starter game"
+            "studio-lab" -> "3D animation and material lab"
+            else -> "S Engine starter"
         }
         val summary = "LOCAL DEMO PLAN — selected the installed '${template.name}' template. " +
             "Its existing S Engine scene, scripts and controls are used; no AI model or generated code was used. " +
@@ -68,7 +67,7 @@ object DemoGamePlanner {
     private fun editPlan(prompt: String, lower: String, project: Project): GameSpec {
         val sceneName = project.startScene
         val scene = try { project.loadScene(sceneName) } catch (_: Exception) { null }
-        val dimension = if (scene?.objects?.any { it.getAny<Camera3D>() != null } == true) GameDimension.THREE_D else GameDimension.TWO_D
+        val dimension = if (project.dimension == "3d" || (project.dimension.isBlank() && scene?.objects?.any { it.getAny<Camera3D>() != null } == true)) GameDimension.THREE_D else GameDimension.TWO_D
         val operations = ArrayList<GameOperation>()
         var summary: String? = null
 
@@ -167,10 +166,10 @@ object DemoGamePlanner {
     private fun chooseTemplate(prompt: String, preferred: String?): String {
         if (!preferred.isNullOrBlank() && preferred != "auto" && GameTemplateCatalog.find(preferred) != null) return preferred
         return when {
+            listOf("empty", "blank", "sandbox").any { it in prompt } -> if("3d" in prompt) "empty-3d" else "empty-2d"
             listOf("animation", "skeleton", "material", "pbr", "lab").any { it in prompt } -> "studio-lab"
             listOf("3d", "third person", "robot").any { it in prompt } -> "sentinel-protocol"
             listOf("shooter", "space", "flight", "salvage").any { it in prompt } -> "orbit-salvage"
-            listOf("empty", "blank", "sandbox").any { it in prompt } -> if("3d" in prompt) "empty-3d" else "empty-2d"
             else -> "neon-relay"
         }
     }

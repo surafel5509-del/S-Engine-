@@ -38,7 +38,12 @@ jobs:
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      - name: Install offline GLSL validator
+        run: sudo apt-get update && sudo apt-get install -y glslang-tools
+
       - name: Run unit tests
+        env:
+          SENGINE_REQUIRE_GLSLANG: "1"
         run: |
           set -o pipefail
           ./gradlew --no-daemon --stacktrace testDebugUnitTest 2>&1 | tee "$RUNNER_TEMP/gradle-test.log"

@@ -49,7 +49,7 @@ class MaterialEditorActivity : AppCompatActivity() {
         bar.addView(button("Save",C.ACCENT,0xFFFFFFFF.toInt()){save()})
         root.addView(bar,lp(MATCH,WRAP))
         val body=hbox()
-        gl=GLSurfaceView(this).apply{setEGLContextClientVersion(2);setRenderer(SceneRenderer(engine,state));renderMode=GLSurfaceView.RENDERMODE_CONTINUOUSLY}
+        gl=EngineSurfaceView(this,SceneRenderer(engine,state)).apply {renderMode=GLSurfaceView.RENDERMODE_CONTINUOUSLY}
         var lastX=0f;var lastY=0f
         gl.setOnTouchListener{_,e->when(e.actionMasked){MotionEvent.ACTION_DOWN->{lastX=e.x;lastY=e.y};MotionEvent.ACTION_MOVE->{state.yaw+=(e.x-lastX)*.35f;state.pitch=(state.pitch+(e.y-lastY)*.25f).coerceIn(-70f,70f);lastX=e.x;lastY=e.y};else->{}};true}
         body.addView(gl,lp(0,MATCH,1f))
@@ -84,7 +84,7 @@ class MaterialEditorActivity : AppCompatActivity() {
         root.addView(body,lp(MATCH,0,1f));setContentView(root)
     }
     private fun changed(){dirty=true;project.materials().preview(asset,draft.copyMaterial())}
-    private fun save(){try{project.materials().save(asset,draft);dirty=false;Toast.makeText(this,"Saved $asset",Toast.LENGTH_SHORT).show()}catch(e:Exception){Toast.makeText(this,e.message,Toast.LENGTH_LONG).show()}}
+    private fun save():Boolean=try{project.materials().save(asset,draft);dirty=false;Toast.makeText(this,"Saved $asset",Toast.LENGTH_SHORT).show();true}catch(e:Exception){Toast.makeText(this,e.message,Toast.LENGTH_LONG).show();false}
     private fun pickTexture(title:String,current:String,onPick:(String)->Unit){
         val names=listOf("None")+project.listAssets(AssetKind.TEXTURE)
         MaterialAlertDialogBuilder(this).setTitle(title).setItems(names.toTypedArray()){_,i->onPick(if(i==0)"" else names[i])}.setNegativeButton("Cancel",null).show()
@@ -109,5 +109,5 @@ class MaterialEditorActivity : AppCompatActivity() {
     override fun onResume(){super.onResume();if(::gl.isInitialized)gl.onResume()}
     override fun onPause(){if(::gl.isInitialized)gl.onPause();super.onPause()}
     override fun onDestroy(){if(::project.isInitialized)project.materials().preview(asset,null);if(::engine.isInitialized)engine.release();super.onDestroy()}
-    @Deprecated("Back dispatcher") override fun onBackPressed(){if(dirty)MaterialAlertDialogBuilder(this).setTitle("Unsaved material").setPositiveButton("Save & exit"){_,_->save();finish()}.setNegativeButton("Discard"){_,_->finish()}.setNeutralButton("Cancel",null).show()else super.onBackPressed()}
+    @Deprecated("Back dispatcher") override fun onBackPressed(){if(dirty)MaterialAlertDialogBuilder(this).setTitle("Unsaved material").setPositiveButton("Save & exit"){_,_->if(save())finish()}.setNegativeButton("Discard"){_,_->finish()}.setNeutralButton("Cancel",null).show()else super.onBackPressed()}
 }

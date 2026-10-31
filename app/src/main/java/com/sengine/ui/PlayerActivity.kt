@@ -56,9 +56,9 @@ class PlayerActivity : AppCompatActivity() {
         })
 
         val root = FrameLayout(this)
-        glView = GLSurfaceView(this).apply {
+        glView = EngineSurfaceView(this,SceneRenderer(engine, null)).apply {
             GlSurface.install(this) { engine.log(0, it) }
-            setRenderer(SceneRenderer(engine, null))
+
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
         glView.setOnTouchListener { v, e -> forwardTouch(v, e); true }

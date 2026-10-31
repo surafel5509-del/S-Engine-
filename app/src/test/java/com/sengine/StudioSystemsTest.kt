@@ -47,6 +47,33 @@ class StudioSystemsTest {
         }
     }
     @Test fun empty3DStartsAndAcceptsAModel(){val p=project();Templates.byId("empty-3d")!!.build(p);val e=Engine(p,p.loadScene("Main"),audioEnabled=false);e.play();frames(e,2);val name=StudioAssets.installRobot(p);e.scene.create("Courier").add(MeshRenderer().also{it.model=name});frames(e,2);assertEquals(1,e.scene.objects.size);e.release()}
+    @Test fun offlinePlannerSelectsTheActualEmptyAndStudioTemplates(){
+        for((prompt,id,dimension) in listOf(Triple("empty 3d world","empty-3d",com.sengine.aibuilder.spec.GameDimension.THREE_D),Triple("empty canvas","empty-2d",com.sengine.aibuilder.spec.GameDimension.TWO_D),Triple("material animation lab","studio-lab",com.sengine.aibuilder.spec.GameDimension.THREE_D))){
+            val spec=com.sengine.aibuilder.provider.DemoGamePlanner.plan(prompt,null)
+            assertEquals(id,spec.templateId);assertEquals(dimension,spec.dimension);assertTrue(com.sengine.aibuilder.spec.GameSpecValidator.validate(spec).issues.toString(),com.sengine.aibuilder.spec.GameSpecValidator.validate(spec).valid)
+        }
+    }
+    @Test fun gltfBaseColorConvertsLinearRgbToSrgbWithoutSwappingAlpha(){
+        val p=project();val bin=ByteBuffer.allocate(36).order(ByteOrder.LITTLE_ENDIAN);listOf(0f,0f,0f,1f,0f,0f,0f,1f,0f).forEach{bin.putFloat(it)}
+        val uri="data:application/octet-stream;base64,"+Base64.getEncoder().encodeToString(bin.array())
+        val doc="""{"asset":{"version":"2.0"},"buffers":[{"uri":"$uri","byteLength":36}],"bufferViews":[{"buffer":0,"byteLength":36}],"accessors":[{"bufferView":0,"componentType":5126,"count":3,"type":"VEC3"}],"materials":[{"pbrMetallicRoughness":{"baseColorFactor":[1,0,0,0.5]}}],"meshes":[{"primitives":[{"attributes":{"POSITION":0},"material":0}]}],"nodes":[{"mesh":0}],"scenes":[{"nodes":[0]}],"scene":0}"""
+        val result=GltfImporter.import(p,"Color.gltf",doc.toByteArray());val material=p.materials().get(result.materials.single())!!
+        assertEquals(0x80FF0000.toInt(),material.baseColor);assertTrue(material.isTransparent)
+    }
+    @Test fun atomicReplacementPreservesThePreviousDocumentOnFailure(){
+        val p=project();p.writeAsset("Save.json","original");assertEquals("updated",Project(p.dir).let{it.writeAsset("Save.json","updated");it.readAsset("Save.json")})
+        val directory=p.assetFile("Directory");assertTrue(directory.mkdirs())
+        assertThrows(java.io.IOException::class.java){AtomicFiles.writeText(directory,"cannot replace a directory")}
+        assertTrue(directory.isDirectory);assertEquals("updated",p.readAsset("Save.json"));assertFalse(p.assetsDir.listFiles()!!.any{it.name.endsWith(".tmp")})
+    }
+    @Test fun skeletalComponentAndProceduralOverridesSurviveSceneReload(){
+        val p=project();val rig=StudioAssets.installRobot(p);val scene=Scene("Main");val go=scene.create("Robot")
+        go.add(MeshRenderer().also{it.model=rig});go.add(SkeletalAnimator().also{it.model=rig;it.clip="Courier_Idle.skanim"})
+        p.saveScene(scene);val e=Engine(p,p.loadScene("Main"),audioEnabled=false);val a=e.scene.find("Robot")!!.getAny<SkeletalAnimator>()!!
+        e.play();frames(e,1);assertTrue(com.sengine.engine.script.SObject(e.scene.find("Robot")!!,e,e.scripts).setBoneRotation("Head",0.0,35.0,0.0))
+        val before=a.pose!!.rotation[3].copyOf();frames(e,2);assertArrayEquals(before,a.pose!!.rotation[3],1e-5f)
+        com.sengine.engine.script.SObject(e.scene.find("Robot")!!,e,e.scripts).clearBoneOverrides();frames(e,1);assertFalse(before.contentEquals(a.pose!!.rotation[3]));e.release()
+    }
     @Test fun materialRoundTripsAllMapsAndClampsInvalidInputs(){
         val p=project();val m=Material("Alloy",metallic=.7f,roughness=.2f,normalMap="Normal.png",metallicRoughnessMap="ORM.png",occlusionMap="ORM.png",emissiveMap="Emission.png",alphaMode=2,doubleSided=true)
         p.materials().save("Alloy.mat",m);val loaded=p.materials().get("Alloy.mat")!!;assertEquals(m.toJson().toString(),loaded.toJson().toString());assertTrue(loaded.isTransparent)
@@ -78,6 +105,19 @@ class StudioSystemsTest {
         val e=script(p,"var math=require('./Math.js'),n=0;function score(){return n;}function start(){events.on('ping',function(v){n=v;});after(0,function(){n=math.value;});}function update(dt){}")
         val second=e.scene.objects[0].add(ScriptComponent().also{it.script="Behavior.js"})
         val errs=errors(e);e.play();frames(e,3);assertTrue(errs.toString(),errs.isEmpty());assertEquals(42.0,e.scripts.sendMessage(e.scene.objects[0],"score",null));e.scripts.events.emit("ping",7.0);assertEquals(7.0,e.scripts.sendMessage(e.scene.objects[0],"score",null));e.release();assertEquals(0,e.scripts.instanceCount)
+    }
+    @Test fun scriptContextIsOnlyExitedByItsOwnerThread(){
+        val e=script(project(),"function start(){}function update(dt){}")
+        var failure:Throwable?=null
+        val ready=java.util.concurrent.CountDownLatch(1);val stop=java.util.concurrent.CountDownLatch(1)
+        val worker=Thread{try{e.scripts.begin();ready.countDown();stop.await();e.scripts.end()}catch(t:Throwable){failure=t;ready.countDown()}}
+        worker.start();assertTrue(ready.await(5,java.util.concurrent.TimeUnit.SECONDS));assertNull(failure);assertTrue(e.scripts.isRunning)
+        e.scripts.end();assertTrue("UI-thread cleanup must not exit a GL-thread context",e.scripts.isRunning)
+        stop.countDown();worker.join(5000);assertNull(failure);assertFalse(e.scripts.isRunning);assertEquals(0,e.scripts.instanceCount)
+    }
+    @Test fun cancelledTimersAndRemovedEventsDoNotRun(){
+        val p=project();val e=script(p,"var n=0,id=0,eventId=0;function start(){id=after(.01,function(){n=100;});cancelTimer(id);eventId=events.on('ping',function(){n=200;});events.off(eventId);}function score(){return n;}function update(dt){}")
+        val errs=errors(e);e.play();frames(e,3);e.scripts.events.emit("ping",null);assertTrue(errs.toString(),errs.isEmpty());assertEquals(0.0,e.scripts.sendMessage(e.scene.objects[0],"score",null));e.release()
     }
     @Test fun infiniteScriptIsDisabledWithoutStoppingEngine(){
         val e=script(project(),"var n=0;function start(){}function update(dt){while(true){n++;}}");val errs=errors(e);e.maxCallbackMsForTest(10);e.play();frames(e,3);assertTrue(errs.any{it.contains("exceeded")});assertEquals(1,e.scripts.diagnostics.count{it["failed"]==true});e.release()

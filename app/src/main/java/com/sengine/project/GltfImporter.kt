@@ -48,8 +48,8 @@ object GltfImporter {
         val buffers = List(arr(doc,"buffers").length()) { i ->
             val b = arr(doc,"buffers").getJSONObject(i); val uri = b.optString("uri")
             val data = if (uri.isEmpty()) input.binary ?: error("Missing GLB binary chunk") else resource(input,uri)
-            require(data.size >= b.getInt("byteLength")) { "Truncated glTF buffer $i" }
-            data
+            val declared=b.getInt("byteLength");require(declared>=0 && data.size >= declared) { "Truncated glTF buffer $i" }
+            if(data.size==declared)data else data.copyOf(declared)
         }
         val accessors = arr(doc,"accessors")
         fun accessor(index: Int): Accessor {
@@ -157,7 +157,11 @@ object GltfImporter {
                 alphaMode=when(m.optString("alphaMode","OPAQUE")){"BLEND"->2;"MASK"->1;else->0},
                 alphaCutoff=m.optDouble("alphaCutoff",0.5).toFloat(),doubleSided=m.optBoolean("doubleSided"),
                 unlit=m.optJSONObject("extensions")?.has("KHR_materials_unlit")==true)
-            m.optJSONArray("emissiveFactor")?.let{valuesOf(it)}?.let{c->out.emissiveColor=0xFF000000.toInt() or (c[0].coerceIn(0f,1f)*255).toInt().shl(16) or (c[1].coerceIn(0f,1f)*255).toInt().shl(8) or (c[2].coerceIn(0f,1f)*255).toInt(); if(c.any{it>0f}) out.emissiveStrength=1f}
+            m.optJSONArray("emissiveFactor")?.let{valuesOf(it)}?.let{c->
+                require(c.size==3 && c.all{it.isFinite()}){"Invalid emissive factor"}
+                val encoded=c.map{v->val x=v.coerceIn(0f,1f).toDouble();val y=if(x<=0.0031308)x*12.92 else 1.055*Math.pow(x,1.0/2.4)-0.055;Math.round(y*255).toInt()}
+                out.emissiveColor=0xFF000000.toInt() or encoded[0].shl(16) or encoded[1].shl(8) or encoded[2];if(c.any{it>0f})out.emissiveStrength=1f
+            }
             m.optJSONObject("extensions")?.optJSONObject("KHR_materials_emissive_strength")?.let{out.emissiveStrength=it.optDouble("emissiveStrength",1.0).toFloat()}
             p.optJSONObject("baseColorTexture")?.optJSONObject("extensions")?.optJSONObject("KHR_texture_transform")?.let{
                 out.offsetX=it.optJSONArray("offset")?.optDouble(0,0.0)?.toFloat() ?: 0f; out.offsetY=it.optJSONArray("offset")?.optDouble(1,0.0)?.toFloat() ?: 0f

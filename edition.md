@@ -299,3 +299,18 @@ Deliver:
 5. A list of changed files, remaining risks and the next phase.
 
 Do not attempt to implement the entire long-term roadmap in one enormous patch. Complete the current phase properly, preserve the branch and history, and stop at a buildable checkpoint.
+
+
+---
+
+## Studio 3.0 implementation checkpoint (2026-10-31)
+
+This checkpoint supersedes the earlier branch-specific prompt below for the current Studio work. The active implementation remains the existing Android/Kotlin engine; no mock desktop/web replacement was introduced.
+
+Implemented and integrated: schema-3 project metadata with legacy fixture coverage; truly empty 2D/3D projects and a replaced starter catalog; reusable metallic/roughness materials and a live editor; glTF/GLB conversion with bounded input and rollback; portable multi-part models; skeleton/clip sampling, crossfades/events and CPU/ES3 GPU skinning; a joint/keyframe editor; expanded script lifecycle, modules, events/timers, diagnostics and runtime guards. Original generated starter art/rigs are included. The old template builders are test fixtures only.
+
+Verification: the core/legacy regression suite and Studio systems tests run locally; CI builds debug/release APKs and now requires offline Khronos GLSL compilation/linking. Device/GPU visual and performance testing remains a separate gate. Atomic document replacement no longer deletes the previous file before rename.
+
+Known boundaries: direct-light PBR without IBL/shadow maps/refraction; no material node graph; no IK/retargeting/weight painting/state-machine graph; one shared skeleton per glTF model; no FBX/Draco/KTX2/morph/cubic animation. These are documented rather than represented by nonfunctional controls. See README.md and docs/scripting.md for workflows and exact limits.
+
+The historical roadmap below is retained as architecture guidance, not a claim that every long-term phase is complete.

@@ -147,9 +147,7 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         project = ProjectManager.open(this, intent.getStringExtra("project") ?: run { finish(); return })
         val sceneName = if (project.sceneExists(project.startScene)) project.startScene
         else project.listScenes().firstOrNull() ?: "Main"
-        val scene = if (project.sceneExists(sceneName)) project.loadScene(sceneName) else Scene(sceneName).also {
-            it.create("Main Camera").add(Camera2D())
-        }
+        val scene = if (project.sceneExists(sceneName)) project.loadScene(sceneName) else Scene(sceneName)
         openedSceneSave = project.sceneFile(sceneName).takeIf { it.isFile }?.readText()
         engine = Engine(project, scene)
         tiltInput = TiltInputController(this, engine.input)
@@ -292,10 +290,9 @@ class EditorActivity : AppCompatActivity(), EditorHost {
 
         // viewport
         val vp = FrameLayout(this)
-        glView = GLSurfaceView(this).apply {
+        sceneRenderer = SceneRenderer(engine, state)
+        glView = EngineSurfaceView(this,sceneRenderer).apply {
             GlSurface.install(this) { engine.log(0, it) }
-            sceneRenderer = SceneRenderer(engine, state)
-            setRenderer(sceneRenderer)
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
         controller = ViewportController(this, engine, state)
@@ -1089,7 +1086,18 @@ class EditorActivity : AppCompatActivity(), EditorHost {
         saveScene(silent=true)
         val selected=synchronized(engine.lock){engine.scene.findById(state.selectedId)}
         val mr=selected?.getAny<MeshRenderer>()
-        startActivity(Intent(this,SkeletalEditorActivity::class.java).putExtra("project",project.name).putExtra("asset",asset.ifBlank{selected?.getAny<com.sengine.engine.core.SkeletalAnimator>()?.clip.orEmpty()}).putExtra("model",model.ifBlank{mr?.model.orEmpty()}))
+        val requestedModel=model.ifBlank{mr?.model.orEmpty()}
+        val hasRig=project.listAssets(AssetKind.MODEL).any{engine.models.get(it)?.skeleton!=null && (requestedModel.isBlank()||it==requestedModel)}
+        fun open(){startActivity(Intent(this,SkeletalEditorActivity::class.java).putExtra("project",project.name).putExtra("asset",asset.ifBlank{selected?.getAny<com.sengine.engine.core.SkeletalAnimator>()?.clip.orEmpty()}).putExtra("model",requestedModel))}
+        if(hasRig)open()else MaterialAlertDialogBuilder(this).setTitle("Generate a starter rig?")
+            .setMessage("Create the original weighted courier, PBR materials, texture maps and idle/run clips in this project. Existing asset names are preserved.")
+            .setPositiveButton("Generate & open"){_,_->
+                try{
+                    var prefix="StudioCourier";var i=2;while(project.assetFile("$prefix.smodel").exists())prefix="StudioCourier${i++}"
+                    val rig=com.sengine.project.StudioAssets.installRobot(project,prefix)
+                    engine.models.get(rig);refreshAssets();startActivity(Intent(this,SkeletalEditorActivity::class.java).putExtra("project",project.name).putExtra("model",rig))
+                }catch(e:Exception){toast("Rig generation failed: ${e.message}")}
+            }.setNegativeButton("Cancel",null).show()
     }
     private fun importAsset(uri: Uri) {
         try {

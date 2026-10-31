@@ -70,7 +70,7 @@ if (uPBR > 0.5 && uUnlit < 0.5) {
       float att=pow(clamp(1.0-dist/max(uPointPos[i].w,0.001),0.0,1.0),2.0)/max(dist*dist*0.15,1.0);
       col+=brdf(n,v,delta/max(dist,0.001),uPointColor[i]*att*4.0,albedo,metal,rough);
     }
-    vec3 emission=uEmissiveColor*uEmissiveStrength;
+    vec3 emission=pow(max(uEmissiveColor,vec3(0.0)),vec3(2.2))*uEmissiveStrength;
     if(uMapFlags.w>0.5) emission*=pow(texture2D(uEmissiveMap,uv).rgb,vec3(2.2));
     col+=emission;
     col=pow(toneMap(col),vec3(1.0/2.2));

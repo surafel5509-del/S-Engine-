@@ -122,7 +122,7 @@ class ScriptEditorActivity : AppCompatActivity() {
                 MaterialAlertDialogBuilder(this@ScriptEditorActivity)
                     .setTitle("Unsaved changes")
                     .setMessage("Save changes to $asset?")
-                    .setPositiveButton("Save") { _, _ -> save(); finish() }
+                    .setPositiveButton("Save") { _, _ -> if(save()) finish() }
                     .setNegativeButton("Discard") { _, _ -> finish() }
                     .setNeutralButton("Cancel", null)
                     .show()
@@ -144,13 +144,14 @@ class ScriptEditorActivity : AppCompatActivity() {
         if(!report.ok)MaterialAlertDialogBuilder(this).setTitle("Script diagnostics").setMessage(details).setPositiveButton("Go to line"){_,_->val issue=report.issues.first();val lines=editor.text.toString().split('\n');val pos=lines.take((issue.line-1).coerceAtMost(lines.size)).sumOf{it.length+1}+(issue.column-1).coerceAtLeast(0);editor.requestFocus();editor.setSelection(pos.coerceIn(0,editor.length()))}.setNegativeButton("Close",null).show()
         return report.ok
     }
-    private fun save() {
-        if(!glsl && !checkScript()){Toast.makeText(this,"Fix syntax errors before saving",Toast.LENGTH_SHORT).show();return}
+    private fun save():Boolean {
+        if(!glsl && !checkScript()){Toast.makeText(this,"Fix syntax errors before saving",Toast.LENGTH_SHORT).show();return false}
         val t = editor.text.toString()
         project.writeAsset(asset, t)
         saved = t
         updateStatus()
         Toast.makeText(this, "Saved $asset", Toast.LENGTH_SHORT).show()
+        return true
     }
 
     private fun updateStatus() {
@@ -240,6 +241,10 @@ class ScriptEditorActivity : AppCompatActivity() {
 LIFECYCLE (define any of these)
   start()              once, when play begins
   update(dt)           every frame (dt = seconds)
+  fixedUpdate(dt)      fixed 1/60 s simulation step
+  lateUpdate(dt)       after physics and animation
+  onEnable() / onDisable()
+  onAnimationEvent(name)
   onCollision(other)   solid collision began
   onTrigger(other)     entered a trigger
   onTriggerExit(other) left a trigger
@@ -262,11 +267,21 @@ SELF  (self / transform / gameObject)
   rotate(rx,ry,rz) setVelocity(x,y,z)
   angularVelocityX/Y/Z addTorque(x,y,z)
   addForce(x,y,z) distanceTo3(o) forward()
-  setMeshColor("#FFRRGGBB")
+  setMeshColor("#AARRGGBB")
+  setMaterial("Alloy.mat")
+  setMaterialProperty("metallic", 0..1)
+  setMaterialProperty("roughness", 0..1)
+  setMaterialProperty("emissiveStrength", n)
+      material overrides are per-object, not disk edits
 
  ANIMATION & RENDER
   play("Run.anim") stopAnimation()
   animation isAnimationFinished()
+  crossFade("Run.skanim", seconds)
+  setBoneRotation(name,rx,ry,rz) degrees
+  setBonePosition(name,x,y,z) local
+  clearBoneOverrides()
+  getBonePosition(name) -> world [x,y,z]
   setAnimSpeed(s) setShaderParam(v)
 
   color = "#FFRRGGBB"  visible  flipX
@@ -306,11 +321,29 @@ SAVE DATA  storage.get(key, fallback)  storage.set(key, value)
 HELPERS
   log(...) warn(m) error(m)
   after(sec, fn) every(sec, fn)
+  cancelTimer(id) moveTowards damp
+  assert(condition,message)
   random(a,b) randomInt(a,b)
   clamp(v,a,b) lerp(a,b,t)
 
 PARAMS  "speed=5, jump=10" in the Script
         component become variables.
+
+MODULES & EVENTS
+  var math = require('./Math.js')
+  module.exports = { value: 42 }
+  events.on(name, fn) / once(name, fn)
+  events.emit(name, value) / off(id)
+  timers.after / every / cancel
+  Subscriptions and timers are instance-owned.
+  Modules share exports, not instance globals.
+
+LIMITS
+  JavaScript is interpreted Rhino ES6 subset.
+  No Java/host filesystem/network access.
+  512 KB/source; 35 ms ordinary callbacks;
+  250 ms initialization; 256 spawns/frame.
+  Check validates syntax without executing code.
 
 BLUEPRINTS  .bp files compile to this API.
 """.trimIndent()

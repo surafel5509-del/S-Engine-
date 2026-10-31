@@ -71,6 +71,9 @@ class SceneRenderer(private val engine: Engine, private val editor: EditorState?
      * driver dropped the context). All GPU objects from a previous context are abandoned here and
      * rebuilt, so no handle from an old context is ever reused.
      */
+    /** Called by the owning GLSurfaceView after its render thread has joined. */
+    fun onRenderThreadStopped() { engine.scripts.onRenderThreadStopped() }
+
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         lastNs = System.nanoTime()
         initFailed = false

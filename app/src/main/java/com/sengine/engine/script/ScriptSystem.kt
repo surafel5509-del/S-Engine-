@@ -51,11 +51,20 @@ class ScriptSystem(val engine:Engine,private val enabled:Boolean=true):PhysicsWo
         startPending()
     }
     fun end(){
-        if(cx!=null&&Thread.currentThread()===ownerThread){
-            for(inst in instances.toList())if(inst.started&&!inst.failed&&inst.go.isActiveInHierarchy())call(inst,"onStop")
-            Context.exit()
-        }
+        // Rhino Context.enter/exit is thread-bound. An Activity destruction on the UI thread
+        // must never exit (or mutate) a context owned by the live GL thread.
+        if(cx!=null&&Thread.currentThread()!==ownerThread)return
+        if(cx!=null){
+            try{for(inst in instances.toList())if(inst.started&&!inst.failed&&inst.go.isActiveInHierarchy())call(inst,"onStop")}
+            finally{Context.exit();clearRuntime()}
+        }else clearRuntime()
+    }
+    private fun clearRuntime(){
         cx=null;global=null;ownerThread=null;active=null;callDepth=0;instances.clear();wrappers.clear();compiled.clear();modules.clear();loadingModules.clear();events.clear();timers.clear()
+    }
+    /** GLSurfaceView.onDetachedFromWindow calls this after its render thread has stopped. */
+    fun onRenderThreadStopped(){
+        if(cx!=null&&ownerThread?.isAlive==false)clearRuntime()
     }
     private fun put(scope:Scriptable,name:String,obj:Any){ScriptableObject.putProperty(scope,name,Context.javaToJS(obj,scope))}
     fun wrap(go:GameObject)=wrappers.getOrPut(go.id){SObject(go,engine,this)}
@@ -157,7 +166,7 @@ class ScriptSystem(val engine:Engine,private val enabled:Boolean=true):PhysicsWo
         val name=file.path.replace('\\','/')
         require(name.endsWith(".js") && name.length<=160){"require() accepts project .js modules"}
         val f=engine.project.assetFile(name);require(f.isFile&&f.length()<=ScriptDiagnostics.MAX_SOURCE_BYTES){"Module not found or too large: $name"}
-        modules[name]?.let{return it}
+        if(modules.containsKey(name))return modules[name]
         require(loadingModules.add(name)){"Circular module dependency: $name"}
         try{
             val scope=c.newObject(g);scope.prototype=g;scope.parentScope=null

@@ -117,8 +117,7 @@ class SkeletalEditorActivity: AppCompatActivity() {
         root.addView(bar,lp(MATCH,WRAP))
 
         val body = hbox()
-        gl = GLSurfaceView(this).apply {
-            setEGLContextClientVersion(2); setRenderer(SceneRenderer(engine,state))
+        gl = EngineSurfaceView(this,SceneRenderer(engine,state)).apply {
             renderMode = GLSurfaceView.RENDERMODE_CONTINUOUSLY
         }
         var x = 0f; var y = 0f
@@ -146,7 +145,6 @@ class SkeletalEditorActivity: AppCompatActivity() {
         rotationFields = (0..2).map { axis ->
             field("0",true).also { f ->
                 panel.addView(label(listOf("X","Y","Z")[axis],11f,C.DIM)); panel.addView(f,lp(MATCH,WRAP))
-                f.setOnFocusChangeListener { _,focus -> if (!focus) keyRotation() }
             }
         }
         val actions = hbox()

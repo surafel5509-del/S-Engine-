@@ -91,7 +91,11 @@ void main() {
     override val skinnedMeshVs get() = meshVertex(true)
 
     override fun meshFs(effect: String) = """
+#ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
+#else
+precision mediump float;
+#endif
 varying vec3 vTangent;
 varying float vTangentW;
 varying vec3 vWorld;
